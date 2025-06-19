@@ -427,28 +427,28 @@ def fsdp_training(rank, world_size):
     # Num parameters
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
 
-    # -------------------------------------------------
-    # Test before training
-    # -------------------------------------------------
-    if rank == 0:
-        test_prompts = [
-            "Việt Nam là một quốc gia",
-            "Tiêu đề: Hà Nội\n\nNội dung:",
-            "Lịch sử Việt Nam bắt đầu từ",
-            "Văn hóa truyền thống của người Việt",
-            "Tiêu đề: Phở\n\nNội dung: Phở là"
-        ]
-        print("\n" + "=" * 50)
-        print("TESTING THE ORIGINAL MODEL")
-        print("=" * 50)
+    # # -------------------------------------------------
+    # # Test before training
+    # # -------------------------------------------------
+    # if rank == 0:
+    #     test_prompts = [
+    #         "Việt Nam là một quốc gia",
+    #         "Tiêu đề: Hà Nội\n\nNội dung:",
+    #         "Lịch sử Việt Nam bắt đầu từ",
+    #         "Văn hóa truyền thống của người Việt",
+    #         "Tiêu đề: Phở\n\nNội dung: Phở là"
+    #     ]
+    #     print("\n" + "=" * 50)
+    #     print("TESTING THE ORIGINAL MODEL")
+    #     print("=" * 50)
 
-        for i, prompt in enumerate(test_prompts, 1):
-            print(f"\n--- Test {i} ---")
-            print(f"Prompt: {prompt}")
-            print("-" * 40)
+    #     for i, prompt in enumerate(test_prompts, 1):
+    #         print(f"\n--- Test {i} ---")
+    #         print(f"Prompt: {prompt}")
+    #         print("-" * 40)
             
-            generated = generate_text(model, tokenizer, device, prompt)
-            print(f"Generated: {generated}")
+    #         generated = generate_text(model, tokenizer, device, prompt)
+    #         print(f"Generated: {generated}")
 
     # -------------------------------------------------
     # Wrap the model with FSDP for distributed training
