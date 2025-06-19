@@ -420,8 +420,8 @@ def fsdp_training(rank, world_size):
     # Load model
     model = AutoModelForCausalLM.from_pretrained(
         config.model_name,
-        quantization_config=quantization_config,
-        torch_dtype=torch.float32,
+        # quantization_config=quantization_config,
+        # torch_dtype=torch.float32,
         trust_remote_code=True
     )
     model = model.to(device)
