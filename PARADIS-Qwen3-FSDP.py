@@ -149,9 +149,9 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
     total_loss = 0
     optimizer.zero_grad()
     
-    progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch + 1}")
+    # progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch + 1}")
     
-    for step, batch in enumerate(progress_bar):
+    for step, batch in enumerate(dataloader):
         # Move batch to device
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
@@ -231,9 +231,9 @@ def validate(model, dataloader, device, config):
     total_steps = 0
     
     with torch.no_grad():
-        progress_bar = tqdm(dataloader, desc="Validating")
+        # progress_bar = tqdm(dataloader, desc="Validating")
         
-        for batch in progress_bar:
+        for batch in dataloader:
             # Move batch to device
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
@@ -258,7 +258,7 @@ def validate(model, dataloader, device, config):
             total_loss += loss.item()
             total_steps += 1
             
-            progress_bar.set_postfix({'valid_loss': f"{loss.item():.4f}"})
+            # progress_bar.set_postfix({'valid_loss': f"{loss.item():.4f}"})
     
     avg_loss = total_loss / total_steps
     perplexity = math.exp(avg_loss)
@@ -339,7 +339,7 @@ def fsdp_training(rank, world_size):
     # Environment variables
     # -------------------------------------------------
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # -------------------------------------------------
     # Get secrets
