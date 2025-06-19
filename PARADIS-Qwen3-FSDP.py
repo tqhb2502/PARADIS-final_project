@@ -340,8 +340,10 @@ def fsdp_training(rank, world_size):
     # Set up distributed environment for current rank
     setup_fsdp(rank, world_size)
     device = torch.device(f"cuda:{rank}")
+    print(rank)
+    print(dist.get_rank())
     sys.exit(0)
-    
+
     # -------------------------------------------------
     # Environment variables
     # -------------------------------------------------
