@@ -67,7 +67,7 @@ class Config:
     valid_strategy = "epoch"
     
     # Other settings
-    fp16 = False
+    fp16 = True
     num_workers = os.cpu_count() // 2
     
     # W&B configuration
@@ -318,13 +318,19 @@ def setup_fsdp(rank, world_size):
     
     # Set environment variables for master address and port
     os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = '29501'
+    os.environ['MASTER_PORT'] = '29500'
     
     # Initialize the distributed process group using NCCL backend (optimized for GPUs)
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     
     # Set the current device based on the rank
     torch.cuda.set_device(rank)
+
+    # Display process group info
+    print(f"[Rank {rank}] Process group initialized!")
+    print(f"[Rank {rank}] Backend: {dist.get_backend()}")
+    print(f"[Rank {rank}] World Size: {dist.get_world_size()}")
+    print(f"[Rank {rank}] NCCL_DEBUG: {os.environ.get('NCCL_DEBUG', 'NOT SET')}")
 
 def cleanup_fsdp():
     """Cleans up the distributed process group."""
@@ -346,7 +352,8 @@ def fsdp_training(rank, world_size):
     # Environment variables
     # -------------------------------------------------
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
     # -------------------------------------------------
     # Get secrets
