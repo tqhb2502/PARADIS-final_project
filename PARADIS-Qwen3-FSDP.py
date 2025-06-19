@@ -424,7 +424,32 @@ def fsdp_training(rank, world_size):
     # Num parameters
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
 
+    # -------------------------------------------------
+    # Test before training
+    # -------------------------------------------------
+    if rank == 0:
+        test_prompts = [
+            "Việt Nam là một quốc gia",
+            "Tiêu đề: Hà Nội\n\nNội dung:",
+            "Lịch sử Việt Nam bắt đầu từ",
+            "Văn hóa truyền thống của người Việt",
+            "Tiêu đề: Phở\n\nNội dung: Phở là"
+        ]
+        print("\n" + "=" * 50)
+        print("TESTING THE ORIGINAL MODEL")
+        print("=" * 50)
+
+        for i, prompt in enumerate(test_prompts, 1):
+            print(f"\n--- Test {i} ---")
+            print(f"Prompt: {prompt}")
+            print("-" * 40)
+            
+            generated = generate_text(model, tokenizer, device, prompt)
+            print(f"Generated: {generated}")
+
+    # -------------------------------------------------
     # Wrap the model with FSDP for distributed training
+    # -------------------------------------------------
     model = FSDP(
         model,
         auto_wrap_policy=size_based_auto_wrap_policy,
@@ -527,29 +552,6 @@ def fsdp_training(rank, world_size):
     scaler = torch.amp.GradScaler(device) if config.fp16 else None
 
     # -------------------------------------------------
-    # Test before training
-    # -------------------------------------------------
-    test_prompts = [
-        "Việt Nam là một quốc gia",
-        "Tiêu đề: Hà Nội\n\nNội dung:",
-        "Lịch sử Việt Nam bắt đầu từ",
-        "Văn hóa truyền thống của người Việt",
-        "Tiêu đề: Phở\n\nNội dung: Phở là"
-    ]
-    if rank == 0:   
-        print("\n" + "=" * 50)
-        print("TESTING THE ORIGINAL MODEL")
-        print("=" * 50)
-
-        for i, prompt in enumerate(test_prompts, 1):
-            print(f"\n--- Test {i} ---")
-            print(f"Prompt: {prompt}")
-            print("-" * 40)
-            
-            generated = generate_text(model, tokenizer, device, prompt)
-            print(f"Generated: {generated}")
-
-    # -------------------------------------------------
     # Main training loop
     # -------------------------------------------------
     if rank == 0:
@@ -617,44 +619,45 @@ def fsdp_training(rank, world_size):
                     "perplexity": perplexity,
                 })
             
-            # Save best model
-            if valid_loss < best_valid_loss:
-                best_valid_loss = valid_loss
-                
-                model.save_pretrained(config.output_dir)
-                tokenizer.save_pretrained(config.output_dir)
-                print(f"New best model! Saved to {config.output_dir}")
-                
-                if config.use_hf:
-                    model.push_to_hub(config.hf_repo)
-                    tokenizer.push_to_hub(config.hf_repo)
-                    print(f"Also saved to repo {config.hf_repo}")
-                
-            # Save training state
-            torch.save({
-                'epoch': epoch + 1,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'best_valid_loss': best_valid_loss,
-                'training_history': training_history
-            }, os.path.join(config.output_dir, 'training_state.pt'))
-            print(f"Training state saved to {config.output_dir}!")
+            with model.summon_full_params():
+                # Save best model
+                if valid_loss < best_valid_loss:
+                    best_valid_loss = valid_loss
+                    
+                    model.save_pretrained(config.output_dir)
+                    tokenizer.save_pretrained(config.output_dir)
+                    print(f"New best model! Saved to {config.output_dir}")
+                    
+                    if config.use_hf:
+                        model.push_to_hub(config.hf_repo)
+                        tokenizer.push_to_hub(config.hf_repo)
+                        print(f"Also saved to repo {config.hf_repo}")
+                    
+                # Save training state
+                torch.save({
+                    'epoch': epoch + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'best_valid_loss': best_valid_loss,
+                    'training_history': training_history
+                }, os.path.join(config.output_dir, 'training_state.pt'))
+                print(f"Training state saved to {config.output_dir}!")
 
-            if config.use_hf:
-                hf_api.upload_file(
-                    path_or_fileobj=os.path.join(config.output_dir, 'training_state.pt'),
-                    path_in_repo="training_state.pt",
-                    repo_id=config.hf_repo,
-                    repo_type="model",
-                )
-            print(f"Training state pushed to repo {config.hf_repo}!")
+                if config.use_hf:
+                    hf_api.upload_file(
+                        path_or_fileobj=os.path.join(config.output_dir, 'training_state.pt'),
+                        path_in_repo="training_state.pt",
+                        repo_id=config.hf_repo,
+                        repo_type="model",
+                    )
+                print(f"Training state pushed to repo {config.hf_repo}!")
             
         # Clean up GPU memory
         torch.cuda.empty_cache()
         gc.collect()
 
-    if rank == 0: 
+    if rank == 0:
         # -------------------------------------------------
         # Test after training
         # -------------------------------------------------
@@ -662,36 +665,38 @@ def fsdp_training(rank, world_size):
         print("TESTING THE FINE-TUNED MODEL")
         print("=" * 60)
 
-        for i, prompt in enumerate(test_prompts, 1):
-            print(f"\n--- Test {i} ---")
-            print(f"Prompt: {prompt}")
-            print("-" * 40)
-            
-            generated = generate_text(model, tokenizer, device, prompt)
-            print(f"Generated: {generated}")
+        with model.summon_full_params():
+            for i, prompt in enumerate(test_prompts, 1):
+                print(f"\n--- Test {i} ---")
+                print(f"Prompt: {prompt}")
+                print("-" * 40)
+                
+                generated = generate_text(model, tokenizer, device, prompt)
+                print(f"Generated: {generated}")
 
         # -------------------------------------------------
         # Save training log
         # -------------------------------------------------
         # Save comprehensive training log
-        training_log = {
-            'config': vars(config),
-            'model_info': {
-                'model_name': config.model_name,
-                'num_parameters': model.num_parameters(),
-                'dataset_name': config.dataset_name,
-                'train_samples': len(train_ds),
-                'valid_samples': len(valid_ds)
-            },
-            'training_results': {
-                'best_valid_loss': best_valid_loss,
-                'final_perplexity': training_history['valid_perplexities'][-1],
-                'total_epochs': config.num_train_epochs,
-                'total_steps': total_steps
-            },
-            'training_history': training_history,
-            'training_date': datetime.now().isoformat()
-        }
+        with model.summon_full_params():
+            training_log = {
+                'config': vars(config),
+                'model_info': {
+                    'model_name': config.model_name,
+                    'num_parameters': model.num_parameters(),
+                    'dataset_name': config.dataset_name,
+                    'train_samples': len(train_ds),
+                    'valid_samples': len(valid_ds)
+                },
+                'training_results': {
+                    'best_valid_loss': best_valid_loss,
+                    'final_perplexity': training_history['valid_perplexities'][-1],
+                    'total_epochs': config.num_train_epochs,
+                    'total_steps': total_steps
+                },
+                'training_history': training_history,
+                'training_date': datetime.now().isoformat()
+            }
 
         with open(os.path.join(config.output_dir, 'training_log.json'), 'w', encoding='utf-8') as f:
             json.dump(training_log, f, indent=2, ensure_ascii=False)
