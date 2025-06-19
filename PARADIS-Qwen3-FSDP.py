@@ -154,11 +154,14 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
     
     for step, batch in enumerate(dataloader):
         print(rank)
+        print('-' * 10)
         # Move batch to device
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         labels = batch['labels'].to(device)
         
+        print(rank)
+        print('-' * 10)
         # Forward pass with mixed precision
         if config.fp16:
             # For mixed precision
