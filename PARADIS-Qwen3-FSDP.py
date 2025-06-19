@@ -339,6 +339,7 @@ def fsdp_training(rank, world_size):
     # Environment variables
     # -------------------------------------------------
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # -------------------------------------------------
     # Get secrets
@@ -508,7 +509,7 @@ def fsdp_training(rank, world_size):
         batch_size=config.per_device_train_batch_size,
         shuffle=True,
         num_workers=config.num_workers,
-        pin_memory=True,
+        # pin_memory=True,
     )
 
     valid_dataloader = DataLoader(
@@ -516,7 +517,7 @@ def fsdp_training(rank, world_size):
         batch_size=config.per_device_valid_batch_size,
         shuffle=True,
         num_workers=config.num_workers,
-        pin_memory=True,
+        # pin_memory=True,
     )
 
     if rank == 0:
