@@ -67,7 +67,7 @@ class Config:
     valid_strategy = "epoch"
     
     # Other settings
-    fp16 = True
+    fp16 = False
     num_workers = os.cpu_count() // 2
     
     # W&B configuration
