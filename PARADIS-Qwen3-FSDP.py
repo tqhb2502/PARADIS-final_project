@@ -180,7 +180,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 attention_mask=attention_mask,
                 labels=labels
             )
-            loss = outputs.loss / config.gradient_accumulation_steps
+            loss = outputs.loss.to(device) / config.gradient_accumulation_steps
         print(rank)
         print('-' * 10)
 
@@ -230,7 +230,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 })
         print(rank)
         print('-' * 10)
-        
+
     return total_loss / len(dataloader) * config.gradient_accumulation_steps
 
 # -------------------------------------------------
