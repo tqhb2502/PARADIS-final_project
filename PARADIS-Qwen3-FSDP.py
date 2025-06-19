@@ -347,7 +347,7 @@ def fsdp_training(rank, world_size):
     # os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     os.environ["NCCL_DEBUG"] = "INFO"
-    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
+    os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
 
     # -------------------------------------------------
@@ -494,7 +494,7 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Create splits
     # -------------------------------------------------
-    dataset = dataset.shuffle(seed=config.random_seed)
+    # dataset = dataset.shuffle(seed=config.random_seed)
 
     train_split = dataset.select(range(
         config.train_size
