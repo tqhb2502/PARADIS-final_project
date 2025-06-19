@@ -759,7 +759,7 @@ def fsdp_training(rank, world_size):
 def check_gpu_availability():
     """Check the number of GPUs is available."""
     num_gpus = torch.cuda.device_count()
-    print(f"Number of GPUs available: {num_gpus}")
+    # print(f"Number of GPUs available: {num_gpus}")
     return num_gpus
 
 def main():
@@ -768,7 +768,7 @@ def main():
     num_gpus = check_gpu_availability()
     
     if num_gpus >= 2:
-        print(f"Running with distributed training on {num_gpus} GPUs")
+        # print(f"Running with distributed training on {num_gpus} GPUs")
         # world_size = num_gpus
         # # Spawn processes for distributed training using the available GPUs
         # torch.multiprocessing.spawn(fsdp_training, args=(world_size,), nprocs=world_size, join=True)
