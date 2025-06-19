@@ -205,18 +205,18 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
         #     'lr': f"{scheduler.get_last_lr()[0]:.2e}"
         # })
         
-        # # Logging
-        # if (step + 1) % config.logging_steps == 0 and rank == 0:
+        # Logging
+        if (step + 1) % config.logging_steps == 0 and rank == 0:
             
-        #     avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
-        #     print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
+            avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
+            print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
 
-        #     if config.use_wandb:
-        #         wandb.log({
-        #             "train_loss": avg_loss,
-        #             "learning_rate": scheduler.get_last_lr()[0],
-        #             "train_step": epoch * len(dataloader) + step + 1
-        #         })
+            if config.use_wandb:
+                wandb.log({
+                    "train_loss": avg_loss,
+                    "learning_rate": scheduler.get_last_lr()[0],
+                    "train_step": epoch * len(dataloader) + step + 1
+                })
     
     return total_loss / len(dataloader) * config.gradient_accumulation_steps
 
@@ -425,28 +425,28 @@ def fsdp_training(rank, world_size):
     # Num parameters
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
 
-    # # -------------------------------------------------
-    # # Test before training
-    # # -------------------------------------------------
-    # if rank == 0:
-    #     test_prompts = [
-    #         "Việt Nam là một quốc gia",
-    #         "Tiêu đề: Hà Nội\n\nNội dung:",
-    #         "Lịch sử Việt Nam bắt đầu từ",
-    #         "Văn hóa truyền thống của người Việt",
-    #         "Tiêu đề: Phở\n\nNội dung: Phở là"
-    #     ]
-    #     print("\n" + "=" * 50)
-    #     print("TESTING THE ORIGINAL MODEL")
-    #     print("=" * 50)
+    # -------------------------------------------------
+    # Test before training
+    # -------------------------------------------------
+    if rank == 0:
+        test_prompts = [
+            "Việt Nam là một quốc gia",
+            "Tiêu đề: Hà Nội\n\nNội dung:",
+            "Lịch sử Việt Nam bắt đầu từ",
+            "Văn hóa truyền thống của người Việt",
+            "Tiêu đề: Phở\n\nNội dung: Phở là"
+        ]
+        print("\n" + "=" * 50)
+        print("TESTING THE ORIGINAL MODEL")
+        print("=" * 50)
 
-    #     for i, prompt in enumerate(test_prompts, 1):
-    #         print(f"\n--- Test {i} ---")
-    #         print(f"Prompt: {prompt}")
-    #         print("-" * 40)
+        for i, prompt in enumerate(test_prompts, 1):
+            print(f"\n--- Test {i} ---")
+            print(f"Prompt: {prompt}")
+            print("-" * 40)
             
-    #         generated = generate_text(model, tokenizer, device, prompt)
-    #         print(f"Generated: {generated}")
+            generated = generate_text(model, tokenizer, device, prompt)
+            print(f"Generated: {generated}")
 
     # -------------------------------------------------
     # Wrap the model with FSDP for distributed training
