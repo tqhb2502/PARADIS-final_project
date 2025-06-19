@@ -181,7 +181,9 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 labels=labels
             )
             loss = outputs.loss / config.gradient_accumulation_steps
-        
+        print(rank)
+        print('-' * 10)
+
         # Backward pass
         if config.fp16:
             scaler.scale(loss).backward()
@@ -189,7 +191,9 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             loss.backward()
         
         total_loss += loss.item()
-        
+        print(rank)
+        print('-' * 10)
+
         # Update weights every gradient_accumulation_steps
         if (step + 1) % config.gradient_accumulation_steps == 0:
             if config.fp16:
@@ -203,7 +207,9 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             
             scheduler.step()
             optimizer.zero_grad()
-        
+        print(rank)
+        print('-' * 10)
+
         # # Update progress bar
         # progress_bar.set_postfix({
         #     'loss': f"{loss.item() * config.gradient_accumulation_steps:.4f}",
@@ -222,7 +228,9 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                     "learning_rate": scheduler.get_last_lr()[0],
                     "train_step": epoch * len(dataloader) + step + 1
                 })
-    
+        print(rank)
+        print('-' * 10)
+        
     return total_loss / len(dataloader) * config.gradient_accumulation_steps
 
 # -------------------------------------------------
