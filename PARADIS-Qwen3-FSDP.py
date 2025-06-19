@@ -169,14 +169,14 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 )
                 # Chia loss cho gradient_accumulation_steps
                 # Nếu không nhận được loss sẽ gấp <gradient_accumulation_steps> lần loss thực sự
-                loss = outputs.loss.to(device) / config.gradient_accumulation_steps
+                loss = outputs.loss / config.gradient_accumulation_steps
         else:
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels
             )
-            loss = outputs.loss.to(device) / config.gradient_accumulation_steps
+            loss = outputs.loss / config.gradient_accumulation_steps
         print(f"{rank} before bug")
 
         # Backward pass
@@ -342,18 +342,20 @@ def fsdp_training(rank, world_size):
     """Train model with FSDP"""
     
     # -------------------------------------------------
+    # Environment variables
+    # -------------------------------------------------
+    # os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+
+    # -------------------------------------------------
     # Setup FSDP
     # -------------------------------------------------
     # Set up distributed environment for current rank
     setup_fsdp(rank, world_size)
     device = torch.device(f"cuda:{rank}")
-
-    # -------------------------------------------------
-    # Environment variables
-    # -------------------------------------------------
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["NCCL_DEBUG"] = "INFO"
-    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
     # -------------------------------------------------
     # Get secrets
@@ -469,6 +471,7 @@ def fsdp_training(rank, world_size):
         model,
         auto_wrap_policy=size_based_auto_wrap_policy,
         cpu_offload=CPUOffload(offload_params=True),
+        device_id=device,
     )
 
     # -------------------------------------------------
