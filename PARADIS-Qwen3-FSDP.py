@@ -24,12 +24,10 @@ import wandb
 import numpy as np
 from datetime import datetime
 import json
-from tqdm.auto import tqdm
 import gc
 import math
 import time
 import os
-import sys
 
 # -------------------------------------------------
 # Constants
@@ -68,7 +66,7 @@ class Config:
     
     # Other settings
     fp16 = True
-    num_workers = os.cpu_count() // 2
+    num_workers = os.cpu_count()
     
     # W&B configuration
     use_wandb = True
@@ -149,9 +147,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
     model.train()
     total_loss = 0
     optimizer.zero_grad()
-    
-    # progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch + 1}")
-    
+        
     for step, batch in enumerate(dataloader):
         # Move batch to device
         input_ids = batch['input_ids'].to(device)
@@ -201,14 +197,6 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             
             scheduler.step()
             optimizer.zero_grad()
-        print(rank)
-        print('-' * 10)
-
-        # # Update progress bar
-        # progress_bar.set_postfix({
-        #     'loss': f"{loss.item() * config.gradient_accumulation_steps:.4f}",
-        #     'lr': f"{scheduler.get_last_lr()[0]:.2e}"
-        # })
         
         # Logging
         if (step + 1) % config.logging_steps == 0 and rank == 0:
@@ -222,8 +210,6 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                     "learning_rate": scheduler.get_last_lr()[0],
                     "train_step": epoch * len(dataloader) + step + 1
                 })
-        print(rank)
-        print('-' * 10)
 
     return total_loss / len(dataloader) * config.gradient_accumulation_steps
 
@@ -237,9 +223,7 @@ def validate(model, dataloader, device, config):
     total_loss = 0
     total_steps = 0
     
-    with torch.no_grad():
-        # progress_bar = tqdm(dataloader, desc="Validating")
-        
+    with torch.no_grad():        
         for batch in dataloader:
             # Move batch to device
             input_ids = batch['input_ids'].to(device)
@@ -264,9 +248,7 @@ def validate(model, dataloader, device, config):
             loss = outputs.loss
             total_loss += loss.item()
             total_steps += 1
-            
-            # progress_bar.set_postfix({'valid_loss': f"{loss.item():.4f}"})
-    
+                
     avg_loss = total_loss / total_steps
     perplexity = math.exp(avg_loss)
     
@@ -344,7 +326,7 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Environment variables
     # -------------------------------------------------
-    # os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
@@ -441,28 +423,28 @@ def fsdp_training(rank, world_size):
     # Num parameters
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
 
-    # # -------------------------------------------------
-    # # Test before training
-    # # -------------------------------------------------
-    # if rank == 0:
-    #     test_prompts = [
-    #         "Việt Nam là một quốc gia",
-    #         "Tiêu đề: Hà Nội\n\nNội dung:",
-    #         "Lịch sử Việt Nam bắt đầu từ",
-    #         "Văn hóa truyền thống của người Việt",
-    #         "Tiêu đề: Phở\n\nNội dung: Phở là"
-    #     ]
-    #     print("\n" + "=" * 50)
-    #     print("TESTING THE ORIGINAL MODEL")
-    #     print("=" * 50)
+    # -------------------------------------------------
+    # Test before training
+    # -------------------------------------------------
+    if rank == 0:
+        test_prompts = [
+            "Việt Nam là một quốc gia",
+            "Tiêu đề: Hà Nội\n\nNội dung:",
+            "Lịch sử Việt Nam bắt đầu từ",
+            "Văn hóa truyền thống của người Việt",
+            "Tiêu đề: Phở\n\nNội dung: Phở là"
+        ]
+        print("\n" + "=" * 50)
+        print("TESTING THE ORIGINAL MODEL")
+        print("=" * 50)
 
-    #     for i, prompt in enumerate(test_prompts, 1):
-    #         print(f"\n--- Test {i} ---")
-    #         print(f"Prompt: {prompt}")
-    #         print("-" * 40)
+        for i, prompt in enumerate(test_prompts, 1):
+            print(f"\n--- Test {i} ---")
+            print(f"Prompt: {prompt}")
+            print("-" * 40)
             
-    #         generated = generate_text(model, tokenizer, device, prompt)
-    #         print(f"Generated: {generated}")
+            generated = generate_text(model, tokenizer, device, prompt)
+            print(f"Generated: {generated}")
 
     # -------------------------------------------------
     # Wrap the model with FSDP for distributed training
@@ -470,8 +452,6 @@ def fsdp_training(rank, world_size):
     model = FSDP(
         model,
         auto_wrap_policy=size_based_auto_wrap_policy,
-        cpu_offload=CPUOffload(offload_params=True),
-        device_id=device,
     )
 
     # -------------------------------------------------
@@ -494,7 +474,7 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Create splits
     # -------------------------------------------------
-    # dataset = dataset.shuffle(seed=config.random_seed)
+    dataset = dataset.shuffle(seed=config.random_seed)
 
     train_split = dataset.select(range(
         config.train_size
@@ -505,18 +485,12 @@ def fsdp_training(rank, world_size):
         config.train_size + config.valid_size
     ))
 
-    test_split = dataset.select(range(
-        config.train_size + config.valid_size,
-        config.train_size + config.valid_size + config.test_size
-    ))
     if rank == 0:
         print(f'train split: {len(train_split)} samples')
         print(f'valid split: {len(valid_split)} samples')
-        print(f'test split: {len(test_split)} samples')
 
     train_ds = WikiViDataset(train_split, tokenizer, config.max_length)
     valid_ds = WikiViDataset(valid_split, tokenizer, config.max_length)
-    test_ds = WikiViDataset(test_split, tokenizer, config.max_length)
 
     # -------------------------------------------------
     # Data loader
@@ -528,13 +502,6 @@ def fsdp_training(rank, world_size):
         shuffle=True,
         drop_last=True
     )
-    valid_sampler = DistributedSampler(
-        valid_ds,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=False
-    )
-
     train_dataloader = DataLoader(
         train_ds,
         batch_size=config.per_device_train_batch_size,
@@ -542,6 +509,13 @@ def fsdp_training(rank, world_size):
         num_workers=config.num_workers,
         pin_memory=True,
         drop_last=True,
+    )
+
+    valid_sampler = DistributedSampler(
+        valid_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=False
     )
     valid_dataloader = DataLoader(
         valid_ds,
@@ -604,91 +578,97 @@ def fsdp_training(rank, world_size):
 
         best_valid_loss = float('inf')
 
-    for epoch in range(config.num_train_epochs):
-        if rank == 0:
-            print(f"\n{'=' * 50}")
-            print(f"Epoch {epoch + 1}/{config.num_train_epochs}")
-            print(f"{'=' * 50}")
-        
-        # Training
-        if rank == 0: start_time = time.time()
-        train_loss = train_epoch(rank, model, train_dataloader, optimizer, scheduler, scaler, device, epoch, config)
-        if rank == 0: end_time = time.time()
-        
-        if rank == 0:
-            elapsed_time = end_time - start_time
-            train_mins, train_secs = divmod(elapsed_time, 60)
-            training_history['train_times'].append(train_mins)
-            print(f"Training Time: {int(train_mins)} mins {int(train_secs)} seconds")
-        
-            training_history['train_losses'].append(train_loss)
-            print(f"Training Loss: {train_loss:.4f}")
-        
-        # Validation
-        if rank == 0: start_time = time.time()
-        valid_loss, perplexity = validate(model, valid_dataloader, device, config)
-        if rank == 0: end_time = time.time()
-        
-        if rank == 0:
-            elapsed_time = end_time - start_time
-            valid_mins, valid_secs = divmod(elapsed_time, 60)
-            training_history['valid_times'].append(valid_mins)
-            print(f"Training Time: {int(valid_mins)} mins {int(valid_secs)} seconds")
+    try:
+        for epoch in range(config.num_train_epochs):
+            if rank == 0:
+                print(f"\n{'=' * 50}")
+                print(f"Epoch {epoch + 1}/{config.num_train_epochs}")
+                print(f"{'=' * 50}")
             
-            training_history['valid_losses'].append(valid_loss)
-            training_history['valid_perplexities'].append(perplexity)
-            print(f"Validation Loss: {valid_loss:.4f}")
-            print(f"Perplexity: {perplexity:.2f}")
-        
-        if rank == 0:
-            # Log to wandb
-            if config.use_wandb:
-                wandb.log({
-                    "epoch": epoch + 1,
-                    "train_time (m)": train_mins,
-                    "valid_time (m)": valid_mins,
-                    "valid_loss": valid_loss,
-                    "perplexity": perplexity,
-                })
+            # Training
+            if rank == 0: start_time = time.time()
+            train_loss = train_epoch(rank, model, train_dataloader, optimizer, scheduler, scaler, device, epoch, config)
+            if rank == 0: end_time = time.time()
             
-            with model.summon_full_params():
-                # Save best model
-                if valid_loss < best_valid_loss:
-                    best_valid_loss = valid_loss
-                    
-                    model.save_pretrained(config.output_dir)
-                    tokenizer.save_pretrained(config.output_dir)
-                    print(f"New best model! Saved to {config.output_dir}")
-                    
-                    if config.use_hf:
-                        model.push_to_hub(config.hf_repo)
-                        tokenizer.push_to_hub(config.hf_repo)
-                        print(f"Also saved to repo {config.hf_repo}")
-                    
-                # Save training state
-                torch.save({
-                    'epoch': epoch + 1,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'best_valid_loss': best_valid_loss,
-                    'training_history': training_history
-                }, os.path.join(config.output_dir, 'training_state.pt'))
-                print(f"Training state saved to {config.output_dir}!")
+            if rank == 0:
+                elapsed_time = end_time - start_time
+                train_mins, train_secs = divmod(elapsed_time, 60)
+                training_history['train_times'].append(train_mins)
+                print(f"Training Time: {int(train_mins)} mins {int(train_secs)} seconds")
+            
+                training_history['train_losses'].append(train_loss)
+                print(f"Training Loss: {train_loss:.4f}")
+            
+            # Validation
+            if rank == 0: start_time = time.time()
+            valid_loss, perplexity = validate(model, valid_dataloader, device, config)
+            if rank == 0: end_time = time.time()
+            
+            if rank == 0:
+                elapsed_time = end_time - start_time
+                valid_mins, valid_secs = divmod(elapsed_time, 60)
+                training_history['valid_times'].append(valid_mins)
+                print(f"Training Time: {int(valid_mins)} mins {int(valid_secs)} seconds")
+                
+                training_history['valid_losses'].append(valid_loss)
+                training_history['valid_perplexities'].append(perplexity)
+                print(f"Validation Loss: {valid_loss:.4f}")
+                print(f"Perplexity: {perplexity:.2f}")
+            
+            if rank == 0:
+                # Log to wandb
+                if config.use_wandb:
+                    wandb.log({
+                        "epoch": epoch + 1,
+                        "train_time (m)": train_mins,
+                        "valid_time (m)": valid_mins,
+                        "valid_loss": valid_loss,
+                        "perplexity": perplexity,
+                    })
+                
+                with model.summon_full_params():
+                    # Save best model
+                    if valid_loss < best_valid_loss:
+                        best_valid_loss = valid_loss
+                        
+                        model.save_pretrained(config.output_dir)
+                        tokenizer.save_pretrained(config.output_dir)
+                        print(f"New best model! Saved to {config.output_dir}")
+                        
+                        if config.use_hf:
+                            model.push_to_hub(config.hf_repo)
+                            tokenizer.push_to_hub(config.hf_repo)
+                            print(f"Also saved to repo {config.hf_repo}")
+                        
+                    # Save training state
+                    torch.save({
+                        'epoch': epoch + 1,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'best_valid_loss': best_valid_loss,
+                        'training_history': training_history
+                    }, os.path.join(config.output_dir, 'training_state.pt'))
+                    print(f"Training state saved to {config.output_dir}!")
 
-                if config.use_hf:
-                    hf_api.upload_file(
-                        path_or_fileobj=os.path.join(config.output_dir, 'training_state.pt'),
-                        path_in_repo="training_state.pt",
-                        repo_id=config.hf_repo,
-                        repo_type="model",
-                    )
-                print(f"Training state pushed to repo {config.hf_repo}!")
-            
-        # Clean up GPU memory
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-        gc.collect()
+                    if config.use_hf:
+                        hf_api.upload_file(
+                            path_or_fileobj=os.path.join(config.output_dir, 'training_state.pt'),
+                            path_in_repo="training_state.pt",
+                            repo_id=config.hf_repo,
+                            repo_type="model",
+                        )
+                    print(f"Training state pushed to repo {config.hf_repo}!")
+                
+            # Clean up GPU memory
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            gc.collect()
+    except Exception as e:
+        print(f"Error in rank {rank}: {str(e)}")
+    finally:
+        # Clean up the distributed process group
+        cleanup_fsdp()
 
     if rank == 0:
         # -------------------------------------------------
@@ -710,7 +690,6 @@ def fsdp_training(rank, world_size):
         # -------------------------------------------------
         # Save training log
         # -------------------------------------------------
-        # Save comprehensive training log
         with model.summon_full_params():
             training_log = {
                 'config': vars(config),
@@ -750,28 +729,15 @@ def fsdp_training(rank, world_size):
         if config.use_wandb:
             wandb.finish()
 
-    # -------------------------------------------------
-    # Clean up FSDP
-    # -------------------------------------------------
-    # Clean up the distributed process group
-    cleanup_fsdp()
-
 def check_gpu_availability():
     """Check the number of GPUs is available."""
     num_gpus = torch.cuda.device_count()
-    # print(f"Number of GPUs available: {num_gpus}")
     return num_gpus
 
 def main():
     """Spawns processes for multi-GPU training."""
-
     num_gpus = check_gpu_availability()
-    
     if num_gpus >= 2:
-        # print(f"Running with distributed training on {num_gpus} GPUs")
-        # world_size = num_gpus
-        # # Spawn processes for distributed training using the available GPUs
-        # torch.multiprocessing.spawn(fsdp_training, args=(world_size,), nprocs=world_size, join=True)
         rank = int(os.environ["RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
         print(f"[Rank {rank}] Starting with world_size = {world_size}")
