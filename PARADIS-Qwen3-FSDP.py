@@ -153,15 +153,11 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
     # progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch + 1}")
     
     for step, batch in enumerate(dataloader):
-        print(rank)
-        print('-' * 10)
         # Move batch to device
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
         labels = batch['labels'].to(device)
         
-        print(rank)
-        print('-' * 10)
         # Forward pass with mixed precision
         if config.fp16:
             # For mixed precision
@@ -173,7 +169,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 )
                 # Chia loss cho gradient_accumulation_steps
                 # Nếu không nhận được loss sẽ gấp <gradient_accumulation_steps> lần loss thực sự
-                loss = outputs.loss / config.gradient_accumulation_steps
+                loss = outputs.loss.to(device) / config.gradient_accumulation_steps
         else:
             outputs = model(
                 input_ids=input_ids,
@@ -181,8 +177,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 labels=labels
             )
             loss = outputs.loss.to(device) / config.gradient_accumulation_steps
-        print(rank)
-        print('-' * 10)
+        print(rank + " before bug")
 
         # Backward pass
         if config.fp16:
@@ -191,8 +186,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             loss.backward()
         
         total_loss += loss.item()
-        print(rank)
-        print('-' * 10)
+        print(rank + " after bug")
 
         # Update weights every gradient_accumulation_steps
         if (step + 1) % config.gradient_accumulation_steps == 0:
