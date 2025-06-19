@@ -177,7 +177,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 labels=labels
             )
             loss = outputs.loss.to(device) / config.gradient_accumulation_steps
-        print(rank + " before bug")
+        print(f"{rank} before bug")
 
         # Backward pass
         if config.fp16:
@@ -186,7 +186,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             loss.backward()
         
         total_loss += loss.item()
-        print(rank + " after bug")
+        print(f"{rank} after bug")
 
         # Update weights every gradient_accumulation_steps
         if (step + 1) % config.gradient_accumulation_steps == 0:
