@@ -37,6 +37,11 @@ import time
 import os
 
 # -------------------------------------------------
+# Constants
+# -------------------------------------------------
+MAX_LENGTH = 128
+
+# -------------------------------------------------
 # Finetune config
 # -------------------------------------------------
 class Config:
@@ -55,7 +60,7 @@ class Config:
     learning_rate = 5e-5
     weight_decay = 0.01
     warmup_ratio = 0.1
-    max_length = 128
+    max_length = MAX_LENGTH
 
     # Optimization settings
     adam_epsilon = 1e-8
@@ -131,7 +136,7 @@ class WikiViDataset(Dataset):
 # -------------------------------------------------
 # Preprocessing functions
 # -------------------------------------------------
-def filter_function(example):
+def filter_function(example, config):
     """Filter out empty or very short texts"""
     
     return (
@@ -143,7 +148,7 @@ def filter_function(example):
 # -------------------------------------------------
 # Training function
 # -------------------------------------------------
-def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, epoch):
+def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, epoch, config):
     """Train for one epoch."""
     
     model.train()
@@ -224,7 +229,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
 # -------------------------------------------------
 # Validation function
 # -------------------------------------------------
-def validate(model, dataloader, device):
+def validate(model, dataloader, device, config):
     """Validate the model."""
     
     model.eval()
@@ -274,7 +279,7 @@ def generate_text(
     tokenizer,
     device,
     prompt,
-    max_length=config.max_length,
+    max_length=MAX_LENGTH,
     temperature=0.7,
     top_p=0.9,
     top_k=50
@@ -448,7 +453,7 @@ def fsdp_training(rank, world_size):
     dataset = dataset.select_columns(['title', 'text'])
 
     # Filter out too short samples
-    dataset = dataset.filter(filter_function)
+    dataset = dataset.filter(filter_function, fn_kwargs={"config": config})
     if rank == 0: print(f"After filtering: {len(dataset)} samples")
     
     # -------------------------------------------------
@@ -549,7 +554,7 @@ def fsdp_training(rank, world_size):
             print(f"Prompt: {prompt}")
             print("-" * 40)
             
-            generated = generate_text(prompt, max_length=150, temperature=0.7)
+            generated = generate_text(model, tokenizer, device, prompt)
             print(f"Generated: {generated}")
 
     # -------------------------------------------------
@@ -581,7 +586,7 @@ def fsdp_training(rank, world_size):
         
         # Training
         if rank == 0: start_time = time.time()
-        train_loss = train_epoch(model, train_dataloader, optimizer, scheduler, scaler, epoch)
+        train_loss = train_epoch(rank, model, train_dataloader, optimizer, scheduler, scaler, device, epoch, config)
         if rank == 0: end_time = time.time()
         
         if rank == 0:
@@ -595,7 +600,7 @@ def fsdp_training(rank, world_size):
         
         # Validation
         if rank == 0: start_time = time.time()
-        valid_loss, perplexity = validate(model, valid_dataloader)
+        valid_loss, perplexity = validate(model, valid_dataloader, device, config)
         if rank == 0: end_time = time.time()
         
         if rank == 0:
@@ -670,7 +675,7 @@ def fsdp_training(rank, world_size):
             print(f"Prompt: {prompt}")
             print("-" * 40)
             
-            generated = generate_text(prompt, max_length=150, temperature=0.7)
+            generated = generate_text(model, tokenizer, device, prompt)
             print(f"Generated: {generated}")
 
         # -------------------------------------------------
@@ -744,8 +749,4 @@ def main():
 # Run the script
 # -------------------------------------------------
 if __name__ == "__main__":
-    # -------------------------------------------------
-    # Global variables
-    # -------------------------------------------------
-    global config
     main()
