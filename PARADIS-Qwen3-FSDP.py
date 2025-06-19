@@ -318,7 +318,7 @@ def setup_fsdp(rank, world_size):
     
     # Set environment variables for master address and port
     os.environ['MASTER_ADDR'] = '127.0.0.1'
-    os.environ['MASTER_PORT'] = '29500'
+    os.environ['MASTER_PORT'] = '29501'
     
     # Initialize the distributed process group using NCCL backend (optimized for GPUs)
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
@@ -539,7 +539,6 @@ def fsdp_training(rank, world_size):
         sampler=valid_sampler,
         num_workers=config.num_workers,
         pin_memory=True,
-        drop_last=False,
     )
 
     if rank == 0:
@@ -677,6 +676,7 @@ def fsdp_training(rank, world_size):
                 print(f"Training state pushed to repo {config.hf_repo}!")
             
         # Clean up GPU memory
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
         gc.collect()
 
