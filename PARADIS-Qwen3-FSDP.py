@@ -67,7 +67,7 @@ class Config:
     
     # Other settings
     fp16 = True
-    num_workers = os.cpu_count()
+    num_workers = os.cpu_count() // 2
     
     # W&B configuration
     use_wandb = True
