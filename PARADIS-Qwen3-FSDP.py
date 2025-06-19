@@ -152,6 +152,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
     # progress_bar = tqdm(dataloader, desc=f"Training Epoch {epoch + 1}")
     
     for step, batch in enumerate(dataloader):
+        print(rank)
         # Move batch to device
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
@@ -340,7 +341,6 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    os.environ["TORCH_USE_CUDA_DSA"] = "1"
 
     # -------------------------------------------------
     # Get secrets
