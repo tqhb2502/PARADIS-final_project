@@ -339,7 +339,7 @@ def fsdp_training(rank, world_size):
     # Environment variables
     # -------------------------------------------------
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
     # -------------------------------------------------
     # Get secrets
