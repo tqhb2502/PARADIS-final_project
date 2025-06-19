@@ -4,6 +4,7 @@
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 # For FSDP
 from torch.distributed.fsdp import (
@@ -505,20 +506,35 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Data loader
     # -------------------------------------------------
+    train_sampler = DistributedSampler(
+        train_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        drop_last=True
+    )
+    valid_sampler = DistributedSampler(
+        valid_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=False
+    )
+
     train_dataloader = DataLoader(
         train_ds,
         batch_size=config.per_device_train_batch_size,
-        shuffle=True,
+        sampler=train_sampler,
         num_workers=config.num_workers,
-        # pin_memory=True,
+        pin_memory=True,
+        drop_last=True,
     )
-
     valid_dataloader = DataLoader(
         valid_ds,
         batch_size=config.per_device_valid_batch_size,
-        shuffle=True,
+        sampler=valid_sampler,
         num_workers=config.num_workers,
-        # pin_memory=True,
+        pin_memory=True,
+        drop_last=False,
     )
 
     if rank == 0:
