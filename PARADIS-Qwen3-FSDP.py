@@ -769,9 +769,13 @@ def main():
     
     if num_gpus >= 2:
         print(f"Running with distributed training on {num_gpus} GPUs")
-        world_size = num_gpus
-        # Spawn processes for distributed training using the available GPUs
-        torch.multiprocessing.spawn(fsdp_training, args=(world_size,), nprocs=world_size, join=True)
+        # world_size = num_gpus
+        # # Spawn processes for distributed training using the available GPUs
+        # torch.multiprocessing.spawn(fsdp_training, args=(world_size,), nprocs=world_size, join=True)
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        print(f"[Rank {rank}] Starting with world_size = {world_size}")
+        fsdp_training(rank, world_size)
     else:
         print("Not enough GPUs for distributed training!")
 
