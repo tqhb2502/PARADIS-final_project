@@ -35,6 +35,7 @@ import gc
 import math
 import time
 import os
+import sys
 
 # -------------------------------------------------
 # Constants
@@ -80,12 +81,12 @@ class Config:
     wandb_run_id = None
     wandb_project = "PARADIS-Qwen3_0.6B"
     # wandb_project = "PARADIS-Qwen3_1.7B"
-    wandb_run_name = "1GPU"
+    wandb_run_name = "FSDP"
 
     # HuggingFace configuration
     use_hf = True
-    hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-1GPU"
-    # hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-1GPU"
+    hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP"
+    # hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-FSDP"
     
     # Dataset
     train_size = 10000
@@ -333,7 +334,14 @@ def cleanup_fsdp():
 
 def fsdp_training(rank, world_size):
     """Train model with FSDP"""
-
+    # -------------------------------------------------
+    # Setup FSDP
+    # -------------------------------------------------
+    # Set up distributed environment for current rank
+    setup_fsdp(rank, world_size)
+    device = torch.device(f"cuda:{rank}")
+    sys.exit(0)
+    
     # -------------------------------------------------
     # Environment variables
     # -------------------------------------------------
@@ -353,13 +361,6 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     torch.manual_seed(42)
     np.random.seed(42)
-
-    # -------------------------------------------------
-    # Setup FSDP
-    # -------------------------------------------------
-    # Set up distributed environment for current rank
-    setup_fsdp(rank, world_size)
-    device = torch.device(f"cuda:{rank}")
 
     # -------------------------------------------------
     # Init finetune config
