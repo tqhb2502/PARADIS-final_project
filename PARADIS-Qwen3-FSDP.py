@@ -1,13 +1,7 @@
 # -------------------------------------------------
-# Install requirements
-# -------------------------------------------------
-# pip install -qU transformers accelerate bitsandbytes
-
-# -------------------------------------------------
 # Import modules
 # -------------------------------------------------
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import torch.distributed as dist
@@ -21,7 +15,6 @@ from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 from transformers import (
     AutoTokenizer, 
     AutoModelForCausalLM,
-    BitsAndBytesConfig,
     get_linear_schedule_with_warmup
 )
 from datasets import load_dataset
@@ -415,13 +408,11 @@ def fsdp_training(rank, world_size):
         tokenizer.pad_token = tokenizer.eos_token
 
     # Cấu hình 4-bit quantization
-    quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+    # Bỏ vì FSDP không hỗ trợ, hoặc chưa tìm ra cách
 
     # Load model
     model = AutoModelForCausalLM.from_pretrained(
         config.model_name,
-        # quantization_config=quantization_config,
-        # torch_dtype=torch.float32,
         trust_remote_code=True
     )
     model = model.to(device)
