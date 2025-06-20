@@ -559,7 +559,6 @@ def apply_fsdp_activation_checkpointing(model):
 
     non_reentrant_wrapper = functools.partial(
         checkpoint_wrapper,
-        offload_to_cpu=False,
         checkpoint_impl=CheckpointImpl.NO_REENTRANT,
     )
 
