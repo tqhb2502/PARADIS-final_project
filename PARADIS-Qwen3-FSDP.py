@@ -175,7 +175,7 @@ def setup_wandb(rank, config, config_dict, api_key):
                     x_label=f"rank_{rank}",
                     mode="shared",
                     x_primary=True,
-                    x_stats_gpu_device_ids=[0, 1],
+                    x_stats_gpu_device_ids=[rank],
                 ),
             )
             run_id = new_run.id
@@ -194,6 +194,7 @@ def setup_wandb(rank, config, config_dict, api_key):
                     x_label=f"rank_{rank}",
                     mode="shared",
                     x_primary=False,
+                    x_stats_gpu_device_ids=[rank],
                     x_update_finish_state=False,
                 ),
             )
@@ -704,7 +705,7 @@ def fsdp_training(rank, world_size):
         # Clean up the distributed process group
         cleanup_fsdp()
         # Finish wandb run
-        if config.use_wandb: wandb.finish()
+        if rank == 0 and config.use_wandb: wandb.finish()
 
 # -------------------------------------------------
 # Number of GPUs
