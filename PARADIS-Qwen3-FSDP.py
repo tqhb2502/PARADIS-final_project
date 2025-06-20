@@ -21,6 +21,7 @@ import wandb
 import math
 import time
 import os
+import gc
 
 # -------------------------------------------------
 # Constants
@@ -199,6 +200,8 @@ def load_model_n_tokenizer(config, device):
     # Add pad token if it doesn't exist
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+
 
     # Load model
     model = AutoModelForCausalLM.from_pretrained(
@@ -626,7 +629,7 @@ def fsdp_training(rank, world_size):
             if rank == 0:
                 elapsed_time = end_time - start_time
                 valid_mins, valid_secs = divmod(elapsed_time, 60)
-                print(f"Training Time: {int(valid_mins)} mins {int(valid_secs)} seconds")                
+                print(f"Validation Time: {int(valid_mins)} mins {int(valid_secs)} seconds")                
                 print(f"Validation Loss: {valid_loss:.4f}")
                 print(f"Perplexity: {perplexity:.2f}")
             
@@ -640,10 +643,10 @@ def fsdp_training(rank, world_size):
                     "perplexity": perplexity,
                 })
             
-            # # Clean up GPU memory
-            # torch.cuda.synchronize()
-            # torch.cuda.empty_cache()
-            # gc.collect()
+            # Clean up GPU memory
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            gc.collect()
     except Exception as e:
         print(f"Error in rank {rank}: {str(e)}")
     finally:
