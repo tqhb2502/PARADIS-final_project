@@ -23,6 +23,7 @@ import time
 import os
 import gc
 import multiprocessing
+import ctypes
 
 # -------------------------------------------------
 # Constants
@@ -36,6 +37,8 @@ TEST_PROMPTS = [
     "Văn hóa truyền thống của người Việt",
     "Tiêu đề: Phở\n\nNội dung: Phở là"
 ]
+WANDB_RUN_ID_MAX_LEN = 10
+WANDB_RUN_NOT_INIT = b"<NONE>"
 
 # -------------------------------------------------
 # Finetune config
@@ -75,7 +78,6 @@ class Config:
     
     # W&B configuration
     use_wandb = True
-    wandb_run_id = None
     wandb_project = "PARADIS-Qwen3_0.6B"
     # wandb_project = "PARADIS-Qwen3_1.7B"
     wandb_run_name = "FSDP"
@@ -156,11 +158,11 @@ def get_secrets():
 # -------------------------------------------------
 # Setup wandb
 # -------------------------------------------------
-def setup_wandb(rank, config, config_dict, api_key, run_id):
+def setup_wandb(rank, config, config_dict, api_key, wandb_run_id):
     """Login and create new wandb run"""
     wandb.login(key=api_key)
     if config.use_wandb:
-        if run_id.value is None: # Primary process, init new run
+        if wandb_run_id.value == WANDB_RUN_NOT_INIT: # Primary process, init new run
             new_run = wandb.init(
                 project=config.wandb_project,
                 name=config.wandb_run_name,
@@ -171,7 +173,7 @@ def setup_wandb(rank, config, config_dict, api_key, run_id):
                     x_primary=True,
                 ),
             )
-            run_id.value = new_run.id
+            wandb_run_id.value = new_run.id.encode()
         else: # Worker process, join primary process run
             wandb.init(
                 settings=wandb.Settings(
@@ -179,7 +181,7 @@ def setup_wandb(rank, config, config_dict, api_key, run_id):
                     mode="shared",
                     x_primary=False
                 ),
-                id=run_id.value,
+                id=wandb_run_id.value.decode(),
             )
 
 # -------------------------------------------------
@@ -519,7 +521,7 @@ def fsdp_wrap(model):
     )
     return sharded_model
 
-def fsdp_training(rank, world_size):
+def fsdp_training(rank, world_size, wandb_run_id):
     """Train model with FSDP"""
 
     # -------------------------------------------------
@@ -546,9 +548,7 @@ def fsdp_training(rank, world_size):
     }
 
     # Set up wandb
-    run_id = multiprocessing.Value("c_wchar_p")
-    run_id.value = None
-    setup_wandb(config, config_dict, WANDB_API_KEY, run_id)
+    setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
     
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
@@ -703,14 +703,14 @@ def check_gpu_availability():
 # -------------------------------------------------
 # Main function for spawning process for each GPU
 # -------------------------------------------------
-def main():
+def main(wandb_run_id):
     """Spawns processes for multi-GPU training."""
     num_gpus = check_gpu_availability()
     if num_gpus >= 2:
         rank = int(os.environ["RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
         print(f"[Rank {rank}] Starting with world_size = {world_size}")
-        fsdp_training(rank, world_size)
+        fsdp_training(rank, world_size, wandb_run_id)
     else:
         print("Not enough GPUs for distributed training!")
 
@@ -718,4 +718,5 @@ def main():
 # Run the script
 # -------------------------------------------------
 if __name__ == "__main__":
-    main()
+    wandb_run_id = multiprocessing.Value(ctypes.c_char * WANDB_RUN_ID_MAX_LEN, WANDB_RUN_NOT_INIT)
+    main(wandb_run_id)
