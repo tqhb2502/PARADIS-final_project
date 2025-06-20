@@ -353,7 +353,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             optimizer.zero_grad()
         
         # Logging
-        if rank == 0 and (step + 1) % config.logging_steps == 0:
+        if (step + 1) % config.logging_steps == 0:
             
             avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
             print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
@@ -399,9 +399,15 @@ def validate(model, dataloader, device, config):
                     labels=labels
                 )
             
+            # Calculate loss
             loss = outputs.loss
             total_loss += loss.item()
             total_steps += 1
+
+            # Logging
+            if total_steps % config.logging_steps == 0:
+                avg_loss = total_loss / total_steps
+                print(f"Step {total_steps}/{len(dataloader)}, Loss: {avg_loss:.4f}")
                 
     avg_loss = total_loss / total_steps
     perplexity = math.exp(avg_loss)
@@ -600,6 +606,7 @@ def fsdp_training(rank, world_size):
                 print(f"{'=' * 50}")
             
             # Training
+            if rank == 0: print("Training...")
             if rank == 0: start_time = time.time()
             train_loss = train_epoch(rank, model, train_dataloader, optimizer, scheduler, scaler, device, epoch, config)
             if rank == 0: end_time = time.time()
@@ -611,6 +618,7 @@ def fsdp_training(rank, world_size):
                 print(f"Training Loss: {train_loss:.4f}")
             
             # Validation
+            if rank == 0: print("Validating...")
             if rank == 0: start_time = time.time()
             valid_loss, perplexity = validate(model, valid_dataloader, device, config)
             if rank == 0: end_time = time.time()
