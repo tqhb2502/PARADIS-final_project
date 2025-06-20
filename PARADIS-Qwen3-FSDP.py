@@ -24,6 +24,7 @@ import os
 import gc
 import multiprocessing
 import ctypes
+import time
 
 # -------------------------------------------------
 # Constants
@@ -553,6 +554,7 @@ def fsdp_training(rank, world_size):
         wandb_run_id = WANDB_RUN_NOT_INIT
         setup_wandb(rank, config, config_dict, WANDB_API_KEY, wandb_run_id)
     else:
+        time.sleep(10)
         setup_wandb(rank, config, config_dict, WANDB_API_KEY, wandb_run_id)
     
     # Set up HuggingFace
