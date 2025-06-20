@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 # Pytorch Distributed
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data.distributed import DistributedSampler
 
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
@@ -24,11 +24,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from datasets import load_dataset
-from transformers.models.qwen3.modeling_qwen3 import (
-    Qwen3DecoderLayer,
-    Qwen3Attention,
-    Qwen3MLP,
-)
+from transformers.models.qwen3.modeling_qwen3 import Qwen3DecoderLayer
 
 # General modules
 import wandb
@@ -548,10 +544,18 @@ def cleanup_fsdp():
 # -------------------------------------------------
 def fsdp_wrap(model):
     """Wrap the model with FSDP for distributed training"""
+    transformer_auto_wrapper_policy = functools.partial(
+        transformer_auto_wrap_policy,
+        transformer_layer_cls={
+            Qwen3DecoderLayer,
+        },
+    )
+
     sharded_model = FSDP(
         model,
-        auto_wrap_policy=size_based_auto_wrap_policy,
+        auto_wrap_policy=transformer_auto_wrapper_policy,
     )
+    
     return sharded_model
 
 def apply_fsdp_activation_checkpointing(model):
