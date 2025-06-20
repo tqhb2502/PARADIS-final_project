@@ -22,6 +22,7 @@ import math
 import time
 import os
 import gc
+import multiprocessing
 
 # -------------------------------------------------
 # Constants
@@ -137,7 +138,7 @@ def set_env_var():
     """Set value for environment variables"""
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    os.environ["NCCL_DEBUG"] = "INFO"
+    # os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
 
@@ -155,21 +156,30 @@ def get_secrets():
 # -------------------------------------------------
 # Setup wandb
 # -------------------------------------------------
-def setup_wandb(config, config_dict, api_key):
+def setup_wandb(rank, config, config_dict, api_key, run_id):
     """Login and create new wandb run"""
     wandb.login(key=api_key)
     if config.use_wandb:
-        if config.wandb_run_id is None:
-            wandb.init( # New run
+        if run_id.value is None: # Primary process, init new run
+            new_run = wandb.init(
                 project=config.wandb_project,
                 name=config.wandb_run_name,
                 config=config_dict,
+                settings=wandb.Settings(
+                    x_label=f"rank_{rank}",
+                    mode="shared",
+                    x_primary=True,
+                ),
             )
-        else:
-            wandb.init( # Resume to created run
-                project=config.wandb_project,
-                id=config.wandb_run_id,
-                resume='allow',
+            run_id.value = new_run.id
+        else: # Worker process, join primary process run
+            wandb.init(
+                settings=wandb.Settings(
+                    x_label=f"rank_{rank}",
+                    mode="shared",
+                    x_primary=False
+                ),
+                id=run_id.value,
             )
 
 # -------------------------------------------------
@@ -515,11 +525,6 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # General setup
     # -------------------------------------------------
-    if rank == 0:
-        print(f"\n{'=' * 50}")
-        print("General setup")
-        print(f"{'=' * 50}")
-    
     # Set up env vars
     set_env_var()
     
@@ -532,7 +537,7 @@ def fsdp_training(rank, world_size):
     device = torch.device(f"cuda:{rank}")
 
     # Get secrets
-    if rank == 0: HF_TOKEN, WANDB_API_KEY = get_secrets()
+    HF_TOKEN, WANDB_API_KEY = get_secrets()
 
     # Init finetune config
     config = Config()
@@ -541,13 +546,18 @@ def fsdp_training(rank, world_size):
     }
 
     # Set up wandb
-    if rank == 0: setup_wandb(config, config_dict, WANDB_API_KEY)
+    run_id = multiprocessing.Value("c_wchar_p")
+    run_id.value = None
+    setup_wandb(config, config_dict, WANDB_API_KEY, run_id)
     
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
 
     # Notify when setup have been done
-    if rank == 0: print("All done!")
+    if rank == 0:
+        print(f"\n{'=' * 50}")
+        print("General setup has been done!")
+        print(f"{'=' * 50}")
 
     # -------------------------------------------------
     # Model & Tokenizer
