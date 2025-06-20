@@ -248,7 +248,7 @@ def load_model_n_tokenizer(config, device):
         tokenizer.pad_token = tokenizer.eos_token
 
     # Cấu hình 4-bit quantization
-    quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+    quantization_config = BitsAndBytesConfig(load_in_8bit=True)
 
     # Load model
     model = AutoModelForCausalLM.from_pretrained(
