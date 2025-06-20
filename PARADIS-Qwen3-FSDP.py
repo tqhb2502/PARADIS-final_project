@@ -1,27 +1,38 @@
 # -------------------------------------------------
 # Import modules
 # -------------------------------------------------
+# Pytorch
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
-# For FSDP
+# Pytorch Distributed
 import torch.distributed as dist
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
 from torch.utils.data.distributed import DistributedSampler
 
+from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+    checkpoint_wrapper,
+    CheckpointImpl,
+    apply_activation_checkpointing_wrapper,
+)
+
+# HuggingFace
 from transformers import (
     AutoTokenizer, 
     AutoModelForCausalLM,
     get_linear_schedule_with_warmup
 )
 from datasets import load_dataset
+from transformers.models.qwen3.modeling_qwen3 import Qwen3DecoderLayer
 
+# General modules
 import wandb
 import math
 import time
 import os
 import gc
+import functools
 
 # -------------------------------------------------
 # Constants
@@ -234,9 +245,6 @@ def load_model_n_tokenizer(config, device):
         trust_remote_code=True
     )
     model = model.to(device)
-
-    # Turn on gradient checkpointing to save memory
-    model.gradient_checkpointing_enable()
 
     return model, tokenizer
 
@@ -539,6 +547,27 @@ def fsdp_wrap(model):
     )
     return sharded_model
 
+def apply_fsdp_activation_checkpointing(model):
+    """
+    Apply activation checkpointing (gradient checkpointing) to model
+    This help reduce GPU memory consumption
+    """
+    check_fn = lambda submodule: isinstance(submodule, Qwen3DecoderLayer)
+
+    non_reentrant_wrapper = functools.partial(
+        checkpoint_wrapper,
+        offload_to_cpu=False,
+        checkpoint_impl=CheckpointImpl.NO_REENTRANT,
+    )
+
+    apply_activation_checkpointing_wrapper(
+        model, 
+        checkpoint_wrapper_fn=non_reentrant_wrapper,
+        check_fn=check_fn,
+    )
+
+    return model
+
 def fsdp_training(rank, world_size):
     """Train model with FSDP"""
 
@@ -592,8 +621,11 @@ def fsdp_training(rank, world_size):
     # # Run the test before training
     # if rank == 0: test_model_generation(model, tokenizer, device, TEST_PROMPTS)
 
-    # Wrap model with FSDP
+    # Wrap model with FSDP transformer wrapper
     model = fsdp_wrap(model)
+
+    # Apply FSDP activation checkpointing
+    model = apply_fsdp_activation_checkpointing(model)
 
     # -------------------------------------------------
     # Dataset
