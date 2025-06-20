@@ -357,7 +357,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
         if (step + 1) % config.logging_steps == 0:
             
             avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
-            print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
+            print(f"[Rank {rank}] Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
 
             if config.use_wandb:
                 wandb.log({
@@ -371,7 +371,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
 # -------------------------------------------------
 # Validation function
 # -------------------------------------------------
-def validate(model, dataloader, device, config):
+def validate(rank, model, dataloader, device, config):
     """Validate the model."""
     
     model.eval()
@@ -408,7 +408,7 @@ def validate(model, dataloader, device, config):
             # Logging
             if total_steps % config.logging_steps == 0:
                 avg_loss = total_loss / total_steps
-                print(f"Step {total_steps}/{len(dataloader)}, Loss: {avg_loss:.4f}")
+                print(f"[Rank {rank}] Step {total_steps}/{len(dataloader)}, Loss: {avg_loss:.4f}")
                 
     avg_loss = total_loss / total_steps
     perplexity = math.exp(avg_loss)
@@ -533,7 +533,7 @@ def fsdp_training(rank, world_size):
     }
 
     # Set up wandb
-    if rank == 0: setup_wandb(config, config_dict, WANDB_API_KEY)
+    setup_wandb(config, config_dict, WANDB_API_KEY)
         
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
@@ -621,7 +621,7 @@ def fsdp_training(rank, world_size):
             # Validation
             if rank == 0: print("Validating...")
             if rank == 0: start_time = time.time()
-            valid_loss, perplexity = validate(model, valid_dataloader, device, config)
+            valid_loss, perplexity = validate(rank, model, valid_dataloader, device, config)
             if rank == 0: end_time = time.time()
             
             if rank == 0:
