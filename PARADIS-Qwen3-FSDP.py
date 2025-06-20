@@ -175,6 +175,7 @@ def setup_wandb(rank, config, config_dict, api_key):
                     x_label=f"rank_{rank}",
                     mode="shared",
                     x_primary=True,
+                    x_stats_gpu_device_ids=[0, 1],
                 ),
             )
             run_id = new_run.id
@@ -187,12 +188,14 @@ def setup_wandb(rank, config, config_dict, api_key):
         # Worker process, join primary process run
         if rank != 0:
             wandb.init(
+                project=config.wandb_project,
+                id=run_id,
                 settings=wandb.Settings(
                     x_label=f"rank_{rank}",
                     mode="shared",
-                    x_primary=False
+                    x_primary=False,
+                    x_update_finish_state=False,
                 ),
-                id=run_id,
             )
 
 # -------------------------------------------------
@@ -582,8 +585,8 @@ def fsdp_training(rank, world_size):
     model, tokenizer = load_model_n_tokenizer(config, device)
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
 
-    # Run the test before training
-    if rank == 0: test_model_generation(model, tokenizer, device, TEST_PROMPTS)
+    # # Run the test before training
+    # if rank == 0: test_model_generation(model, tokenizer, device, TEST_PROMPTS)
 
     # Wrap model with FSDP
     model = fsdp_wrap(model)
