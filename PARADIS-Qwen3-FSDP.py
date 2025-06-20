@@ -24,10 +24,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from datasets import load_dataset
-from transformers.models.qwen3.modeling_qwen3 import (
-    Qwen3Attention,
-    Qwen3MLP,
-)
+from transformers.models.qwen3.modeling_qwen3 import Qwen3Attention
 
 # General modules
 import wandb
@@ -555,7 +552,7 @@ def apply_fsdp_activation_checkpointing(model):
     Apply activation checkpointing (gradient checkpointing) to model
     This help reduce GPU memory consumption
     """
-    check_fn = lambda submodule: isinstance(submodule, (Qwen3Attention, Qwen3MLP))
+    check_fn = lambda submodule: isinstance(submodule, Qwen3Attention)
 
     non_reentrant_wrapper = functools.partial(
         checkpoint_wrapper,
