@@ -521,7 +521,7 @@ def fsdp_wrap(model):
     )
     return sharded_model
 
-def fsdp_training(rank, world_size, wandb_run_id):
+def fsdp_training(rank, world_size):
     """Train model with FSDP"""
 
     # -------------------------------------------------
@@ -548,6 +548,11 @@ def fsdp_training(rank, world_size, wandb_run_id):
     }
 
     # Set up wandb
+    if rank == 0:
+        wandb_run_id = multiprocessing.Value(
+            ctypes.c_char * WANDB_RUN_ID_MAX_LEN,
+            WANDB_RUN_NOT_INIT
+        )
     setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
     
     # Set up HuggingFace
@@ -703,14 +708,14 @@ def check_gpu_availability():
 # -------------------------------------------------
 # Main function for spawning process for each GPU
 # -------------------------------------------------
-def main(wandb_run_id):
+def main():
     """Spawns processes for multi-GPU training."""
     num_gpus = check_gpu_availability()
     if num_gpus >= 2:
         rank = int(os.environ["RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
         print(f"[Rank {rank}] Starting with world_size = {world_size}")
-        fsdp_training(rank, world_size, wandb_run_id)
+        fsdp_training(rank, world_size)
     else:
         print("Not enough GPUs for distributed training!")
 
@@ -718,5 +723,4 @@ def main(wandb_run_id):
 # Run the script
 # -------------------------------------------------
 if __name__ == "__main__":
-    wandb_run_id = multiprocessing.Value(ctypes.c_char * WANDB_RUN_ID_MAX_LEN, WANDB_RUN_NOT_INIT)
-    main(wandb_run_id)
+    main()
