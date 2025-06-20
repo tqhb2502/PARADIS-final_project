@@ -511,6 +511,14 @@ def fsdp_wrap(model):
 
 def fsdp_training(rank, world_size):
     """Train model with FSDP"""
+
+    # -------------------------------------------------
+    # General setup
+    # -------------------------------------------------
+    if rank == 0:
+        print(f"\n{'=' * 50}")
+        print("General setup")
+        print(f"{'=' * 50}")
     
     # Set up env vars
     set_env_var()
@@ -533,11 +541,21 @@ def fsdp_training(rank, world_size):
     }
 
     # Set up wandb
-    setup_wandb(config, config_dict, WANDB_API_KEY)
-        
+    if rank == 0: setup_wandb(config, config_dict, WANDB_API_KEY)
+    
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
 
+    # Notify when setup have been done
+    if rank == 0: print("All done!")
+
+    # -------------------------------------------------
+    # Model & Tokenizer
+    # -------------------------------------------------
+    if rank == 0:
+        print(f"\n{'=' * 50}")
+        print("Model & Tokenizer")
+        print(f"{'=' * 50}")
     # Load model and tokenizer
     if rank == 0: print("Loading tokenizer and model...")
     model, tokenizer = load_model_n_tokenizer(config, device)
@@ -549,6 +567,13 @@ def fsdp_training(rank, world_size):
     # Wrap model with FSDP
     model = fsdp_wrap(model)
 
+    # -------------------------------------------------
+    # Dataset
+    # -------------------------------------------------
+    if rank == 0:
+        print(f"\n{'=' * 50}")
+        print("Dataset")
+        print(f"{'=' * 50}")
     # Load and preprocess dataset
     dataset = load_n_preprocess_data(config)
     if rank == 0: print(f"Total: {len(dataset)} samples")
@@ -570,6 +595,10 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Optimizer & scheduler
     # -------------------------------------------------
+    if rank == 0:
+        print(f"\n{'=' * 50}")
+        print("Optimizer & scheduler")
+        print(f"{'=' * 50}")
     # Calculate training step
     total_steps = len(train_dataloader) * config.num_train_epochs // config.gradient_accumulation_steps
     warmup_steps = int(total_steps * config.warmup_ratio)
