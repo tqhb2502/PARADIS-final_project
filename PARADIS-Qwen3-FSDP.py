@@ -21,10 +21,13 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
 from transformers import (
     AutoTokenizer, 
     AutoModelForCausalLM,
-    get_linear_schedule_with_warmup
+    get_linear_schedule_with_warmup,
 )
 from datasets import load_dataset
-from transformers.models.qwen3.modeling_qwen3 import Qwen3DecoderLayer
+from transformers.models.qwen3.modeling_qwen3 import (
+    Qwen3Attention,
+    Qwen3MLP,
+)
 
 # General modules
 import wandb
@@ -552,7 +555,7 @@ def apply_fsdp_activation_checkpointing(model):
     Apply activation checkpointing (gradient checkpointing) to model
     This help reduce GPU memory consumption
     """
-    check_fn = lambda submodule: isinstance(submodule, Qwen3DecoderLayer)
+    check_fn = lambda submodule: isinstance(submodule, (Qwen3Attention, Qwen3MLP))
 
     non_reentrant_wrapper = functools.partial(
         checkpoint_wrapper,
