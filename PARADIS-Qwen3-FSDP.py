@@ -551,9 +551,9 @@ def fsdp_training(rank, world_size):
     if rank == 0:
         wandb_run_id = multiprocessing.Array(ctypes.c_char, WANDB_RUN_ID_MAX_LEN)
         wandb_run_id = WANDB_RUN_NOT_INIT
-        setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
+        setup_wandb(rank, config, config_dict, WANDB_API_KEY, wandb_run_id)
     else:
-        setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
+        setup_wandb(rank, config, config_dict, WANDB_API_KEY, wandb_run_id)
     
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
