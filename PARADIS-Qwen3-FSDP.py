@@ -10,6 +10,8 @@ import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     MixedPrecision,
+    FullStateDictConfig,
+    StateDictType,
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data.distributed import DistributedSampler
@@ -26,6 +28,7 @@ from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from transformers import (
     AutoTokenizer, 
     AutoModelForCausalLM,
+    BitsAndBytesConfig,
     get_linear_schedule_with_warmup,
 )
 from datasets import load_dataset
@@ -244,9 +247,13 @@ def load_model_n_tokenizer(config, device):
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
+    # Cấu hình 4-bit quantization
+    quantization_config = BitsAndBytesConfig(load_in_4bit=True)
+
     # Load model
     model = AutoModelForCausalLM.from_pretrained(
         config.model_name,
+        quantization_config=quantization_config,
         trust_remote_code=True
     )
     model = model.to(device)
@@ -596,6 +603,36 @@ def fsdp_activation_checkpointing(model):
 
     return model
 
+# -------------------------------------------------
+# Save model checkpoint function
+# -------------------------------------------------
+def save_model_checkpoint(rank, model, epoch, fullstate_saving_policy, config, hf_api):
+    """Save model with FULL_STATE_DICT checkpoint type"""
+    # Move model to CPU memory
+    with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
+        cpu_state = model.state_dict()
+    print(f"[Rank {rank}] Done writing model state dict")
+
+    # Start saving
+    if rank == 0:
+        print(f"Saving model...")
+        # Local saving
+        save_path = os.path.join(config.output_dir, "model-checkpoint.pt")
+        torch.save(cpu_state, save_path)
+        print(f"Model checkpoint at {epoch} epoch saved to {save_path}")
+        # Push to HuggingFace hub
+        if config.use_hf:
+            hf_api.upload_file(
+                path_or_fileobj=save_path,
+                path_in_repo=os.path.basename(save_path),
+                repo_id=config.hf_repo,
+                repo_type="model",
+            )
+            print(f"Also save to Huggingface repo {config.hf_repo}")
+
+# -------------------------------------------------
+# Main training function for each GPU
+# -------------------------------------------------
 def fsdp_training(rank, world_size):
     """Train model with FSDP"""
 
@@ -626,7 +663,7 @@ def fsdp_training(rank, world_size):
     setup_wandb(rank, config, config_dict, WANDB_API_KEY)
     
     # Set up HuggingFace
-    if rank == 0: setup_hf(config, HF_TOKEN)
+    if rank == 0: hf_api = setup_hf(config, HF_TOKEN)
 
     # Notify when setup have been done
     if rank == 0:
@@ -645,9 +682,6 @@ def fsdp_training(rank, world_size):
     if rank == 0: print("Loading tokenizer and model...")
     model, tokenizer = load_model_n_tokenizer(config, device)
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
-
-    # # Run the test before training
-    # if rank == 0: test_model_generation(model, tokenizer, device, TEST_PROMPTS)
 
     # Wrap model with FSDP transformer wrapper
     model = fsdp_wrap(model)
@@ -716,6 +750,13 @@ def fsdp_training(rank, world_size):
     # Main training loop
     # -------------------------------------------------
     try:
+        # Create saving policy
+        fullstate_saving_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+
+        # Best model metric
+        if rank == 0: best_valid_loss = float('inf')
+
+        # Start training
         for epoch in range(config.num_train_epochs):
             # Notify new epoch
             if rank == 0:
@@ -758,6 +799,11 @@ def fsdp_training(rank, world_size):
                     "perplexity": perplexity,
                 })
             
+            # Check if this is the best model so far
+            if rank == 0 and valid_loss < best_valid_loss:
+                best_valid_loss = valid_loss
+                save_model_checkpoint(rank, model, epoch, fullstate_saving_policy, config, hf_api)
+
             # Clean up GPU memory
             torch.cuda.synchronize()
             torch.cuda.empty_cache()
