@@ -7,7 +7,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 # Pytorch Distributed
 import torch.distributed as dist
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    MixedPrecision,
+)
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data.distributed import DistributedSampler
 
@@ -16,6 +19,8 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     CheckpointImpl,
     apply_activation_checkpointing,
 )
+
+from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 
 # HuggingFace
 from transformers import (
@@ -540,10 +545,11 @@ def cleanup_fsdp():
         dist.destroy_process_group()
 
 # -------------------------------------------------
-# FSDP wrapper
+# FSDP utilities
 # -------------------------------------------------
 def fsdp_wrap(model):
     """Wrap the model with FSDP for distributed training"""
+    # Wrap each Qwen3DecoderLayer of the model
     transformer_auto_wrapper_policy = functools.partial(
         transformer_auto_wrap_policy,
         transformer_layer_cls={
@@ -551,14 +557,26 @@ def fsdp_wrap(model):
         },
     )
 
+    # Apply mixed precision training to model
+    fp16_policy = MixedPrecision(
+        # Param precision
+        param_dtype=torch.float16,
+        # Gradient communication precision
+        reduce_dtype=torch.float16,
+        # Buffer precision
+        buffer_dtype=torch.float16,
+    )
+
+    # Let's wrap
     sharded_model = FSDP(
         model,
         auto_wrap_policy=transformer_auto_wrapper_policy,
+        mixed_precision=fp16_policy,
     )
-    
+
     return sharded_model
 
-def apply_fsdp_activation_checkpointing(model):
+def fsdp_activation_checkpointing(model):
     """
     Apply activation checkpointing (gradient checkpointing) to model
     This help reduce GPU memory consumption
@@ -635,7 +653,7 @@ def fsdp_training(rank, world_size):
     model = fsdp_wrap(model)
 
     # Apply FSDP activation checkpointing
-    model = apply_fsdp_activation_checkpointing(model)
+    model = fsdp_activation_checkpointing(model)
 
     # -------------------------------------------------
     # Dataset
@@ -692,7 +710,7 @@ def fsdp_training(rank, world_size):
     )
 
     # Setup gradient scaler for mixed precision training
-    scaler = torch.amp.GradScaler(device) if config.fp16 else None
+    scaler = ShardedGradScaler() if config.fp16 else None
 
     # -------------------------------------------------
     # Main training loop
