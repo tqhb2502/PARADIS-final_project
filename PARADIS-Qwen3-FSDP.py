@@ -236,7 +236,6 @@ def load_model_n_tokenizer(config, device):
     model = model.to(device)
 
     # Turn on gradient checkpointing to save memory
-    model.config.use_cache = False
     model.gradient_checkpointing_enable()
 
     return model, tokenizer
