@@ -159,10 +159,10 @@ def get_secrets():
 # Setup wandb
 # -------------------------------------------------
 def setup_wandb(rank, config, config_dict, api_key, wandb_run_id):
-    """Login and create new wandb run"""
+    """Login and create new wandb run or join existing run"""
     wandb.login(key=api_key)
     if config.use_wandb:
-        if wandb_run_id.value == WANDB_RUN_NOT_INIT: # Primary process, init new run
+        if wandb_run_id == WANDB_RUN_NOT_INIT: # Primary process, init new run
             new_run = wandb.init(
                 project=config.wandb_project,
                 name=config.wandb_run_name,
@@ -173,7 +173,7 @@ def setup_wandb(rank, config, config_dict, api_key, wandb_run_id):
                     x_primary=True,
                 ),
             )
-            wandb_run_id.value = new_run.id.encode()
+            wandb_run_id = new_run.id.encode()
         else: # Worker process, join primary process run
             wandb.init(
                 settings=wandb.Settings(
@@ -181,7 +181,7 @@ def setup_wandb(rank, config, config_dict, api_key, wandb_run_id):
                     mode="shared",
                     x_primary=False
                 ),
-                id=wandb_run_id.value.decode(),
+                id=wandb_run_id.decode(),
             )
 
 # -------------------------------------------------
@@ -549,11 +549,11 @@ def fsdp_training(rank, world_size):
 
     # Set up wandb
     if rank == 0:
-        wandb_run_id = multiprocessing.Value(
-            ctypes.c_char * WANDB_RUN_ID_MAX_LEN,
-            WANDB_RUN_NOT_INIT
-        )
-    setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
+        wandb_run_id = multiprocessing.Array(ctypes.c_char, WANDB_RUN_ID_MAX_LEN)
+        wandb_run_id = WANDB_RUN_NOT_INIT
+        setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
+    else:
+        setup_wandb(config, config_dict, WANDB_API_KEY, wandb_run_id)
     
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
