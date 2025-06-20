@@ -14,7 +14,7 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     checkpoint_wrapper,
     CheckpointImpl,
-    apply_activation_checkpointing_wrapper,
+    apply_activation_checkpointing,
 )
 
 # HuggingFace
@@ -560,7 +560,7 @@ def apply_fsdp_activation_checkpointing(model):
         checkpoint_impl=CheckpointImpl.NO_REENTRANT,
     )
 
-    apply_activation_checkpointing_wrapper(
+    apply_activation_checkpointing(
         model, 
         checkpoint_wrapper_fn=non_reentrant_wrapper,
         check_fn=check_fn,
