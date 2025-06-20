@@ -22,9 +22,6 @@ import math
 import time
 import os
 import gc
-import multiprocessing
-import ctypes
-import time
 
 # -------------------------------------------------
 # Constants
@@ -38,8 +35,6 @@ TEST_PROMPTS = [
     "Văn hóa truyền thống của người Việt",
     "Tiêu đề: Phở\n\nNội dung: Phở là"
 ]
-WANDB_RUN_ID_MAX_LEN = 10
-WANDB_RUN_NOT_INIT = b"<NONE>"
 
 # -------------------------------------------------
 # Finetune config
@@ -159,11 +154,19 @@ def get_secrets():
 # -------------------------------------------------
 # Setup wandb
 # -------------------------------------------------
-def setup_wandb(rank, config, config_dict, api_key, wandb_run_id):
+def setup_wandb(rank, config, config_dict, api_key):
     """Login and create new wandb run or join existing run"""
+    
+    # Login to wandb
     wandb.login(key=api_key)
+    
+    # Create run
     if config.use_wandb:
-        if wandb_run_id == WANDB_RUN_NOT_INIT: # Primary process, init new run
+        # New run_id
+        run_id = None
+
+        # Primary process, init new run
+        if rank == 0:
             new_run = wandb.init(
                 project=config.wandb_project,
                 name=config.wandb_run_name,
@@ -174,15 +177,22 @@ def setup_wandb(rank, config, config_dict, api_key, wandb_run_id):
                     x_primary=True,
                 ),
             )
-            wandb_run_id = new_run.id.encode()
-        else: # Worker process, join primary process run
+            run_id = new_run.id
+
+        # Broadcast run_id from primary process (rank 0) to other processes
+        run_id_list = [run_id]
+        dist.broadcast_object_list(run_id_list, src=0)
+        run_id = run_id_list[0]
+
+        # Worker process, join primary process run
+        if rank != 0:
             wandb.init(
                 settings=wandb.Settings(
                     x_label=f"rank_{rank}",
                     mode="shared",
                     x_primary=False
                 ),
-                id=wandb_run_id.decode(),
+                id=run_id,
             )
 
 # -------------------------------------------------
@@ -549,13 +559,7 @@ def fsdp_training(rank, world_size):
     }
 
     # Set up wandb
-    if rank == 0:
-        wandb_run_id = multiprocessing.Array(ctypes.c_char, WANDB_RUN_ID_MAX_LEN)
-        wandb_run_id = WANDB_RUN_NOT_INIT
-        setup_wandb(rank, config, config_dict, WANDB_API_KEY, wandb_run_id)
-    else:
-        time.sleep(10)
-        setup_wandb(rank, config, config_dict, WANDB_API_KEY, wandb_run_id)
+    setup_wandb(rank, config, config_dict, WANDB_API_KEY)
     
     # Set up HuggingFace
     if rank == 0: setup_hf(config, HF_TOKEN)
