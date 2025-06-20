@@ -4,14 +4,11 @@
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.distributed import DistributedSampler
-import torch.distributed as dist
 # For FSDP
-from torch.distributed.fsdp import (
-    FullyShardedDataParallel as FSDP,
-    CPUOffload
-)
+import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+from torch.utils.data.distributed import DistributedSampler
 
 from transformers import (
     AutoTokenizer, 
@@ -21,7 +18,6 @@ from transformers import (
 from datasets import load_dataset
 
 import wandb
-import numpy as np
 from datetime import datetime
 import json
 import gc
@@ -32,12 +28,22 @@ import os
 # -------------------------------------------------
 # Constants
 # -------------------------------------------------
+RANDOM_SEED = 42
 MAX_LENGTH = 128
+TEST_PROMPTS = [
+    "Việt Nam là một quốc gia",
+    "Tiêu đề: Hà Nội\n\nNội dung:",
+    "Lịch sử Việt Nam bắt đầu từ",
+    "Văn hóa truyền thống của người Việt",
+    "Tiêu đề: Phở\n\nNội dung: Phở là"
+]
 
 # -------------------------------------------------
 # Finetune config
 # -------------------------------------------------
 class Config:
+    """All config for this finetune"""
+
     # Model configuration
     model_name = "Qwen/Qwen3-0.6B"
     # model_name = "Qwen/Qwen3-1.7B"
@@ -65,7 +71,7 @@ class Config:
     valid_strategy = "epoch"
     
     # Other settings
-    fp16 = True
+    fp16 = False
     num_workers = os.cpu_count()
     
     # W&B configuration
@@ -85,13 +91,13 @@ class Config:
     valid_size = 10000
     test_size = 5000
     min_text_length = 50
-    random_seed = 42
-
 
 # -------------------------------------------------
 # Custom dataset
 # -------------------------------------------------
 class WikiViDataset(Dataset):
+    """Custom dataset for Wikipedia Vietnamese Dataset on HuggingFace"""
+
     def __init__(self, dataset, tokenizer, max_length):
         self.dataset = dataset
         self.tokenizer = tokenizer
@@ -127,6 +133,86 @@ class WikiViDataset(Dataset):
         }
 
 # -------------------------------------------------
+# Environment variables
+# -------------------------------------------------
+def set_env_var():
+    """Set value for environment variables"""
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+    os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+
+# -------------------------------------------------
+# Get Kaggle secrets
+# -------------------------------------------------
+def get_secrets():
+    """Get Kaggle secrets"""
+    from kaggle_secrets import UserSecretsClient
+    user_secrets = UserSecretsClient()
+    HF_TOKEN = user_secrets.get_secret("HF_TOKEN")
+    WANDB_API_KEY = user_secrets.get_secret("WANDB_API_KEY")
+    return HF_TOKEN, WANDB_API_KEY
+
+# -------------------------------------------------
+# Setup wandb
+# -------------------------------------------------
+def setup_wandb(config, config_dict, api_key):
+    """Login and create new wandb run"""
+    wandb.login(key=api_key)
+    if config.use_wandb:
+        if config.wandb_run_id is None:
+            wandb.init( # New run
+                project=config.wandb_project,
+                name=config.wandb_run_name,
+                config=config_dict,
+            )
+        else:
+            wandb.init( # Resume to created run
+                project=config.wandb_project,
+                id=config.wandb_run_id,
+                resume='allow',
+            )
+
+# -------------------------------------------------
+# Setup HuggingFace
+# -------------------------------------------------
+def setup_hf(config, api_key):
+    """Login and setup HuggingFace API for download/upload files"""
+    if config.use_hf:
+        from huggingface_hub import login, HfApi
+        login(api_key)
+        hf_api = HfApi()
+        return hf_api
+    return None
+
+# -------------------------------------------------
+# Model and tokenizer
+# -------------------------------------------------
+def load_model_n_tokenizer(config, device):
+    """Download and set model and tokenizer up"""
+
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(
+        config.model_name,
+        trust_remote_code=True,
+        padding_side="right"
+    )
+
+    # Add pad token if it doesn't exist
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Load model
+    model = AutoModelForCausalLM.from_pretrained(
+        config.model_name,
+        trust_remote_code=True
+    )
+    model = model.to(device)
+
+    return model, tokenizer
+
+# -------------------------------------------------
 # Preprocessing functions
 # -------------------------------------------------
 def filter_function(example, config):
@@ -139,10 +225,82 @@ def filter_function(example, config):
     )
 
 # -------------------------------------------------
+# Load wikipedia_vi dataset
+# -------------------------------------------------
+def load_n_preprocess_data(config):
+    """Download Wikipedia Vietnamese dataset from HuggingFace and preprocess"""
+    # Download dataset
+    dataset = load_dataset(config.dataset_name, split="train")
+    # Keep only title and text column
+    dataset = dataset.select_columns(['title', 'text'])
+    # Filter out too short samples
+    dataset = dataset.filter(filter_function, fn_kwargs={"config": config})
+    return dataset
+
+# -------------------------------------------------
+# Create data splits
+# -------------------------------------------------
+def create_train_valid_set(dataset, tokenizer, config):
+    """Shuffle data and select samples to train split and valid split"""
+    dataset = dataset.shuffle(seed=RANDOM_SEED)
+
+    train_split = dataset.select(range(
+        config.train_size
+    ))
+
+    valid_split = dataset.select(range(
+        config.train_size,
+        config.train_size + config.valid_size
+    ))
+
+    train_ds = WikiViDataset(train_split, tokenizer, config.max_length)
+    valid_ds = WikiViDataset(valid_split, tokenizer, config.max_length)
+    return train_ds, valid_ds
+    
+# -------------------------------------------------
+# Data loader
+# -------------------------------------------------
+def create_train_valid_loader(train_ds, valid_ds, rank, world_size, config):
+    """Create distributed samplers and data loader for train and valid set"""
+    # Train data loader
+    train_sampler = DistributedSampler(
+        train_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        drop_last=True
+    )
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=config.per_device_train_batch_size,
+        sampler=train_sampler,
+        num_workers=config.num_workers,
+        pin_memory=True,
+        drop_last=True,
+    )
+
+    # Validation data loader
+    valid_sampler = DistributedSampler(
+        valid_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=False
+    )
+    valid_loader = DataLoader(
+        valid_ds,
+        batch_size=config.per_device_valid_batch_size,
+        sampler=valid_sampler,
+        num_workers=config.num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, valid_loader
+
+# -------------------------------------------------
 # Training function
 # -------------------------------------------------
 def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, epoch, config):
-    """Train for one epoch."""
+    """Train model for one epoch."""
     
     model.train()
     total_loss = 0
@@ -173,7 +331,6 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                 labels=labels
             )
             loss = outputs.loss / config.gradient_accumulation_steps
-        print(f"{rank} before bug")
 
         # Backward pass
         if config.fp16:
@@ -181,8 +338,8 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
         else:
             loss.backward()
         
+        # Calculate total loss
         total_loss += loss.item()
-        print(f"{rank} after bug")
 
         # Update weights every gradient_accumulation_steps
         if (step + 1) % config.gradient_accumulation_steps == 0:
@@ -199,7 +356,7 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
             optimizer.zero_grad()
         
         # Logging
-        if (step + 1) % config.logging_steps == 0 and rank == 0:
+        if rank == 0 and (step + 1) % config.logging_steps == 0:
             
             avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
             print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
@@ -293,6 +450,23 @@ def generate_text(
     return generated_text
 
 # -------------------------------------------------
+# Test model generation
+# -------------------------------------------------
+def test_model_generation(model, tokenizer, device, test_prompts):
+    """Run model generation with some test prompts"""
+    print("\n" + "=" * 50)
+    print("TESTING THE MODEL")
+    print("=" * 50)
+
+    for i, prompt in enumerate(test_prompts, 1):
+        print(f"\n--- Test {i} ---")
+        print(f"Prompt: {prompt}")
+        print("-" * 40)
+        
+        generated = generate_text(model, tokenizer, device, prompt)
+        print(f"Generated: {generated}")
+
+# -------------------------------------------------
 # FSDP setup functions
 # -------------------------------------------------
 def setup_fsdp(rank, world_size):
@@ -320,211 +494,71 @@ def cleanup_fsdp():
     if dist.is_initialized():
         dist.destroy_process_group()
 
+# -------------------------------------------------
+# FSDP wrapper
+# -------------------------------------------------
+def fsdp_wrap(model):
+    """Wrap the model with FSDP for distributed training"""
+    sharded_model = FSDP(
+        model,
+        auto_wrap_policy=size_based_auto_wrap_policy,
+    )
+    return sharded_model
+
 def fsdp_training(rank, world_size):
     """Train model with FSDP"""
     
-    # -------------------------------------------------
-    # Environment variables
-    # -------------------------------------------------
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    os.environ["NCCL_DEBUG"] = "INFO"
-    os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
-    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    # Set up env vars
+    set_env_var()
+    
+    # Set random seed
+    torch.manual_seed(RANDOM_SEED)
+    torch.cuda.manual_seed(RANDOM_SEED)
 
-    # -------------------------------------------------
-    # Setup FSDP
-    # -------------------------------------------------
     # Set up distributed environment for current rank
     setup_fsdp(rank, world_size)
     device = torch.device(f"cuda:{rank}")
 
-    # -------------------------------------------------
     # Get secrets
-    # -------------------------------------------------
-    if rank == 0:
-        from kaggle_secrets import UserSecretsClient
-        user_secrets = UserSecretsClient()
-        HF_TOKEN = user_secrets.get_secret("HF_TOKEN")
-        WANDB_API_KEY = user_secrets.get_secret("WANDB_API_KEY")
+    if rank == 0: HF_TOKEN, WANDB_API_KEY = get_secrets()
 
-    # -------------------------------------------------
-    # Random seed
-    # -------------------------------------------------
-    torch.manual_seed(42)
-    np.random.seed(42)
-
-    # -------------------------------------------------
     # Init finetune config
-    # -------------------------------------------------
     config = Config()
     config_dict = {
         k: v for k, v in Config.__dict__.items() if not k.startswith("__") and not callable(v)
     }
 
-    # -------------------------------------------------
-    # Setup wandb
-    # -------------------------------------------------
-    if rank == 0:
-        wandb.login(key=WANDB_API_KEY)
-        if config.use_wandb:
-            if config.wandb_run_id is None:
-                wandb.init( # New run
-                    project=config.wandb_project,
-                    name=config.wandb_run_name,
-                    config=config_dict,
-                )
-            else:
-                wandb.init( # Resume to created run
-                    project=config.wandb_project,
-                    id=config.wandb_run_id,
-                    resume='allow',
-                )
+    # Set up wandb
+    if rank == 0: setup_wandb(config, config_dict, WANDB_API_KEY)
+        
+    # Set up HuggingFace
+    if rank == 0: setup_hf(config, HF_TOKEN)
 
-    # -------------------------------------------------
-    # Setup HuggingFace
-    # -------------------------------------------------
-    if rank == 0:
-        if config.use_hf:
-            from huggingface_hub import login, HfApi
-            login(HF_TOKEN)
-            hf_api = HfApi()
-
-    # -------------------------------------------------
-    # Model and tokenizer
-    # -------------------------------------------------
+    # Load model and tokenizer
     if rank == 0: print("Loading tokenizer and model...")
-
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        config.model_name,
-        trust_remote_code=True,
-        padding_side="right"
-    )
-
-    # Add pad token if it doesn't exist
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
-    # Cấu hình 4-bit quantization
-    # Bỏ vì FSDP không hỗ trợ, hoặc chưa tìm ra cách
-
-    # Load model
-    model = AutoModelForCausalLM.from_pretrained(
-        config.model_name,
-        trust_remote_code=True
-    )
-    model = model.to(device)
-
-    # Turn on gradient checkpointing to save memory
-    model.config.use_cache = False
-    model.gradient_checkpointing_enable()
-
-    # Num parameters
+    model, tokenizer = load_model_n_tokenizer(config, device)
     if rank == 0: print(f"Model loaded. Parameters: {model.num_parameters():,}")
 
-    # -------------------------------------------------
-    # Test before training
-    # -------------------------------------------------
-    if rank == 0:
-        test_prompts = [
-            "Việt Nam là một quốc gia",
-            "Tiêu đề: Hà Nội\n\nNội dung:",
-            "Lịch sử Việt Nam bắt đầu từ",
-            "Văn hóa truyền thống của người Việt",
-            "Tiêu đề: Phở\n\nNội dung: Phở là"
-        ]
-        print("\n" + "=" * 50)
-        print("TESTING THE ORIGINAL MODEL")
-        print("=" * 50)
+    # Run the test before training
+    if rank == 0: test_model_generation(model, tokenizer, device, TEST_PROMPTS)
 
-        for i, prompt in enumerate(test_prompts, 1):
-            print(f"\n--- Test {i} ---")
-            print(f"Prompt: {prompt}")
-            print("-" * 40)
-            
-            generated = generate_text(model, tokenizer, device, prompt)
-            print(f"Generated: {generated}")
+    # Wrap model with FSDP
+    model = fsdp_wrap(model)
 
-    # -------------------------------------------------
-    # Wrap the model with FSDP for distributed training
-    # -------------------------------------------------
-    model = FSDP(
-        model,
-        auto_wrap_policy=size_based_auto_wrap_policy,
-    )
-
-    # -------------------------------------------------
-    # Load wikipedia_vi dataset
-    # -------------------------------------------------
-    if rank == 0: print("Loading dataset...")
-    dataset = load_dataset(config.dataset_name, split="train")
-    if rank == 0: print(f"Dataset loaded. Total samples: {len(dataset)}")
-
-    # -------------------------------------------------
-    # Preprocess data
-    # -------------------------------------------------
-    # Keep only title and text column
-    dataset = dataset.select_columns(['title', 'text'])
-
-    # Filter out too short samples
-    dataset = dataset.filter(filter_function, fn_kwargs={"config": config})
-    if rank == 0: print(f"After filtering: {len(dataset)} samples")
+    # Load and preprocess dataset
+    dataset = load_n_preprocess_data(config)
+    if rank == 0: print(f"Total: {len(dataset)} samples")
     
-    # -------------------------------------------------
     # Create splits
-    # -------------------------------------------------
-    dataset = dataset.shuffle(seed=config.random_seed)
-
-    train_split = dataset.select(range(
-        config.train_size
-    ))
-
-    valid_split = dataset.select(range(
-        config.train_size,
-        config.train_size + config.valid_size
-    ))
-
+    train_ds, valid_ds = create_train_valid_set(dataset, tokenizer, config)
     if rank == 0:
-        print(f'train split: {len(train_split)} samples')
-        print(f'valid split: {len(valid_split)} samples')
+        print(f'Train samples: {len(train_ds)}')
+        print(f'Valid samples: {len(valid_ds)}')
 
-    train_ds = WikiViDataset(train_split, tokenizer, config.max_length)
-    valid_ds = WikiViDataset(valid_split, tokenizer, config.max_length)
-
-    # -------------------------------------------------
-    # Data loader
-    # -------------------------------------------------
-    train_sampler = DistributedSampler(
-        train_ds,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=True,
-        drop_last=True
+    # Create data loader
+    train_dataloader, valid_dataloader = create_train_valid_loader(
+        train_ds, valid_ds, rank, world_size, config
     )
-    train_dataloader = DataLoader(
-        train_ds,
-        batch_size=config.per_device_train_batch_size,
-        sampler=train_sampler,
-        num_workers=config.num_workers,
-        pin_memory=True,
-        drop_last=True,
-    )
-
-    valid_sampler = DistributedSampler(
-        valid_ds,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=False
-    )
-    valid_dataloader = DataLoader(
-        valid_ds,
-        batch_size=config.per_device_valid_batch_size,
-        sampler=valid_sampler,
-        num_workers=config.num_workers,
-        pin_memory=True,
-    )
-
     if rank == 0:
         print(f"Train batches: {len(train_dataloader)}")
         print(f"Valid batches: {len(valid_dataloader)}")
@@ -532,9 +566,9 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Optimizer & scheduler
     # -------------------------------------------------
+    # Calculate training step
     total_steps = len(train_dataloader) * config.num_train_epochs // config.gradient_accumulation_steps
     warmup_steps = int(total_steps * config.warmup_ratio)
-
     if rank == 0:
         print(f"Total training steps: {total_steps}")
         print(f"Warmup steps: {warmup_steps}")
@@ -560,26 +594,9 @@ def fsdp_training(rank, world_size):
     # -------------------------------------------------
     # Main training loop
     # -------------------------------------------------
-    if rank == 0:
-        print("Starting training...")
-
-        # Create output directory
-        os.makedirs(config.output_dir, exist_ok=True)
-
-        # Training history
-        training_history = {
-            'train_losses': [],
-            'train_times': [],
-            'valid_losses': [],
-            'valid_perplexities': [],
-            'valid_times': [],
-            'learning_rates': []
-        }
-
-        best_valid_loss = float('inf')
-
     try:
         for epoch in range(config.num_train_epochs):
+            # Notify new epoch
             if rank == 0:
                 print(f"\n{'=' * 50}")
                 print(f"Epoch {epoch + 1}/{config.num_train_epochs}")
@@ -593,10 +610,7 @@ def fsdp_training(rank, world_size):
             if rank == 0:
                 elapsed_time = end_time - start_time
                 train_mins, train_secs = divmod(elapsed_time, 60)
-                training_history['train_times'].append(train_mins)
-                print(f"Training Time: {int(train_mins)} mins {int(train_secs)} seconds")
-            
-                training_history['train_losses'].append(train_loss)
+                print(f"Training Time: {int(train_mins)} mins {int(train_secs)} seconds")            
                 print(f"Training Loss: {train_loss:.4f}")
             
             # Validation
@@ -607,133 +621,43 @@ def fsdp_training(rank, world_size):
             if rank == 0:
                 elapsed_time = end_time - start_time
                 valid_mins, valid_secs = divmod(elapsed_time, 60)
-                training_history['valid_times'].append(valid_mins)
-                print(f"Training Time: {int(valid_mins)} mins {int(valid_secs)} seconds")
-                
-                training_history['valid_losses'].append(valid_loss)
-                training_history['valid_perplexities'].append(perplexity)
+                print(f"Training Time: {int(valid_mins)} mins {int(valid_secs)} seconds")                
                 print(f"Validation Loss: {valid_loss:.4f}")
                 print(f"Perplexity: {perplexity:.2f}")
             
-            if rank == 0:
-                # Log to wandb
-                if config.use_wandb:
-                    wandb.log({
-                        "epoch": epoch + 1,
-                        "train_time (m)": train_mins,
-                        "valid_time (m)": valid_mins,
-                        "valid_loss": valid_loss,
-                        "perplexity": perplexity,
-                    })
-                
-                with model.summon_full_params():
-                    # Save best model
-                    if valid_loss < best_valid_loss:
-                        best_valid_loss = valid_loss
-                        
-                        model.save_pretrained(config.output_dir)
-                        tokenizer.save_pretrained(config.output_dir)
-                        print(f"New best model! Saved to {config.output_dir}")
-                        
-                        if config.use_hf:
-                            model.push_to_hub(config.hf_repo)
-                            tokenizer.push_to_hub(config.hf_repo)
-                            print(f"Also saved to repo {config.hf_repo}")
-                        
-                    # Save training state
-                    torch.save({
-                        'epoch': epoch + 1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'scheduler_state_dict': scheduler.state_dict(),
-                        'best_valid_loss': best_valid_loss,
-                        'training_history': training_history
-                    }, os.path.join(config.output_dir, 'training_state.pt'))
-                    print(f"Training state saved to {config.output_dir}!")
-
-                    if config.use_hf:
-                        hf_api.upload_file(
-                            path_or_fileobj=os.path.join(config.output_dir, 'training_state.pt'),
-                            path_in_repo="training_state.pt",
-                            repo_id=config.hf_repo,
-                            repo_type="model",
-                        )
-                    print(f"Training state pushed to repo {config.hf_repo}!")
-                
-            # Clean up GPU memory
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            gc.collect()
+            # Log to wandb
+            if rank == 0 and config.use_wandb:
+                wandb.log({
+                    "epoch": epoch + 1,
+                    "train_time (m)": train_mins,
+                    "valid_time (m)": valid_mins,
+                    "valid_loss": valid_loss,
+                    "perplexity": perplexity,
+                })
+            
+            # # Clean up GPU memory
+            # torch.cuda.synchronize()
+            # torch.cuda.empty_cache()
+            # gc.collect()
     except Exception as e:
         print(f"Error in rank {rank}: {str(e)}")
     finally:
         # Clean up the distributed process group
         cleanup_fsdp()
+        # Finish wandb run
+        if config.use_wandb: wandb.finish()
 
-    if rank == 0:
-        # -------------------------------------------------
-        # Test after training
-        # -------------------------------------------------
-        print("\n" + "=" * 60)
-        print("TESTING THE FINE-TUNED MODEL")
-        print("=" * 60)
-
-        with model.summon_full_params():
-            for i, prompt in enumerate(test_prompts, 1):
-                print(f"\n--- Test {i} ---")
-                print(f"Prompt: {prompt}")
-                print("-" * 40)
-                
-                generated = generate_text(model, tokenizer, device, prompt)
-                print(f"Generated: {generated}")
-
-        # -------------------------------------------------
-        # Save training log
-        # -------------------------------------------------
-        with model.summon_full_params():
-            training_log = {
-                'config': vars(config),
-                'model_info': {
-                    'model_name': config.model_name,
-                    'num_parameters': model.num_parameters(),
-                    'dataset_name': config.dataset_name,
-                    'train_samples': len(train_ds),
-                    'valid_samples': len(valid_ds)
-                },
-                'training_results': {
-                    'best_valid_loss': best_valid_loss,
-                    'final_perplexity': training_history['valid_perplexities'][-1],
-                    'total_epochs': config.num_train_epochs,
-                    'total_steps': total_steps
-                },
-                'training_history': training_history,
-                'training_date': datetime.now().isoformat()
-            }
-
-        with open(os.path.join(config.output_dir, 'training_log.json'), 'w', encoding='utf-8') as f:
-            json.dump(training_log, f, indent=2, ensure_ascii=False)
-        print(f"\nTraining log saved to {config.output_dir}/training_log.json")
-
-        if config.use_hf:
-            hf_api.upload_file(
-                path_or_fileobj=os.path.join(config.output_dir, 'training_log.json'),
-                path_in_repo="training_log.json",
-                repo_id=config.hf_repo,
-                repo_type="model",
-            )
-        print(f"\nTraining log pushed to repo {config.hf_repo}")
-
-        # -------------------------------------------------
-        # Clean up
-        # -------------------------------------------------
-        if config.use_wandb:
-            wandb.finish()
-
+# -------------------------------------------------
+# Number of GPUs
+# -------------------------------------------------
 def check_gpu_availability():
     """Check the number of GPUs is available."""
     num_gpus = torch.cuda.device_count()
     return num_gpus
 
+# -------------------------------------------------
+# Main function for spawning process for each GPU
+# -------------------------------------------------
 def main():
     """Spawns processes for multi-GPU training."""
     num_gpus = check_gpu_availability()
