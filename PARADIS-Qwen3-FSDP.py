@@ -69,7 +69,7 @@ class Config:
     valid_strategy = "epoch"
     
     # Other settings
-    fp16 = False
+    fp16 = True
     num_workers = os.cpu_count()
     
     # W&B configuration
@@ -200,8 +200,6 @@ def load_model_n_tokenizer(config, device):
     # Add pad token if it doesn't exist
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-
-
 
     # Load model
     model = AutoModelForCausalLM.from_pretrained(
