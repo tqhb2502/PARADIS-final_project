@@ -162,6 +162,7 @@ def set_env_var():
     # os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # -------------------------------------------------
 # Get Kaggle secrets
