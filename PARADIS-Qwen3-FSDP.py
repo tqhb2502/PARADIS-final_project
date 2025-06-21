@@ -579,7 +579,7 @@ def fsdp_wrap(model):
         model,
         auto_wrap_policy=transformer_auto_wrapper_policy,
         mixed_precision=fp16_policy,
-        cpu_offload=CPUOffload(offload_params=True)
+        cpu_offload=CPUOffload(offload_params=False)
     )
 
     return sharded_model
