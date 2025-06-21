@@ -601,7 +601,7 @@ def fsdp_activation_checkpointing(model):
 # -------------------------------------------------
 # Save model checkpoint function
 # -------------------------------------------------
-def save_model_checkpoint(rank, model, epoch, fullstate_saving_policy, config, hf_api):
+def save_model_checkpoint(rank, model, fullstate_saving_policy, config, hf_api):
     """Save model with FULL_STATE_DICT checkpoint type"""
     # Move model to CPU memory
     with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
@@ -614,7 +614,7 @@ def save_model_checkpoint(rank, model, epoch, fullstate_saving_policy, config, h
         # Local saving
         save_path = os.path.join(config.output_dir, "model-checkpoint.pt")
         torch.save(cpu_state, save_path)
-        print(f"Model checkpoint at {epoch} epoch saved to {save_path}")
+        print(f"New best model saved to {save_path}")
         # Push to HuggingFace hub
         if config.use_hf:
             hf_api.upload_file(
@@ -658,7 +658,7 @@ def fsdp_training(rank, world_size):
     setup_wandb(rank, config, config_dict, WANDB_API_KEY)
     
     # Set up HuggingFace
-    if rank == 0: hf_api = setup_hf(config, HF_TOKEN)
+    hf_api = setup_hf(config, HF_TOKEN)
 
     # Notify when setup have been done
     if rank == 0:
@@ -742,15 +742,21 @@ def fsdp_training(rank, world_size):
     scaler = ShardedGradScaler() if config.fp16 else None
 
     # -------------------------------------------------
+    # Setup for saving checkpoint
+    # -------------------------------------------------
+    # Create saving policy
+    fullstate_saving_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+
+    # Make output directory to store checkpoint
+    if rank == 0: os.makedirs(config.output_dir, exist_ok=True)
+
+    # Best model metric
+    best_valid_loss = float('inf')
+
+    # -------------------------------------------------
     # Main training loop
     # -------------------------------------------------
     try:
-        # Create saving policy
-        fullstate_saving_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-
-        # Best model metric
-        if rank == 0: best_valid_loss = float('inf')
-
         # Start training
         for epoch in range(config.num_train_epochs):
             # Notify new epoch
@@ -795,9 +801,9 @@ def fsdp_training(rank, world_size):
                 })
             
             # Check if this is the best model so far
-            if rank == 0 and valid_loss < best_valid_loss:
+            if valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
-                save_model_checkpoint(rank, model, epoch, fullstate_saving_policy, config, hf_api)
+                save_model_checkpoint(rank, model, fullstate_saving_policy, config, hf_api)
 
             # Clean up GPU memory
             torch.cuda.synchronize()
