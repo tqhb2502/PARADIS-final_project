@@ -3,6 +3,7 @@
 # -------------------------------------------------
 # Pytorch
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 # Pytorch Distributed
@@ -556,6 +557,19 @@ def cleanup_fsdp():
 # -------------------------------------------------
 # FSDP utilities
 # -------------------------------------------------
+def custom_auto_wrap_policy(
+    module: nn.Module,
+    recurse: bool,
+    nonwrapped_numel: int,
+    # Additional custom arguments
+    min_num_params: int = int(1e8),
+) -> bool:
+    """
+    If the number of parameters in a module exceeds min_num_params,
+    it will be wrapped.
+    """
+    return nonwrapped_numel >= min_num_params
+
 def fsdp_wrap(model):
     """Wrap the model with FSDP for distributed training"""
     # Wrap each Qwen3DecoderLayer of the model
@@ -565,7 +579,13 @@ def fsdp_wrap(model):
             Qwen3DecoderLayer,
         },
     )
-
+    
+    # Wrap layers that have more than 1000
+    my_size_auto_wrapper_policy = functools.partial(
+        custom_auto_wrap_policy,
+        min_num_params=int(1e3)
+    )
+    
     # Apply mixed precision training to model
     fp16_policy = MixedPrecision(
         # Param precision
@@ -579,7 +599,7 @@ def fsdp_wrap(model):
     # Let's wrap
     sharded_model = FSDP(
         model,
-        auto_wrap_policy=transformer_auto_wrapper_policy,
+        auto_wrap_policy=my_size_auto_wrapper_policy,
         mixed_precision=fp16_policy,
         cpu_offload=CPUOffload(offload_params=False),
         backward_prefetch=None,
