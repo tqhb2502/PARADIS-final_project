@@ -125,7 +125,11 @@ def setup_hf(config, api_key):
     return None
 
 def ddp_setup():
-    init_process_group(backend="nccl")
+    init_process_group(
+        backend="nccl",
+        rank=os.environ["LOCAL_RANK"],
+        world_size=os.environ["WORLD_SIZE"]
+    )
     torch.cuda.set_device(os.environ["LOCAL_RANK"])
 
 #======================================================
