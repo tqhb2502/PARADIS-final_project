@@ -162,7 +162,6 @@ def set_env_var():
     # os.environ["NCCL_DEBUG"] = "INFO"
     os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING "] = "1"
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "DETAIL"
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # -------------------------------------------------
 # Get Kaggle secrets
@@ -580,7 +579,7 @@ def fsdp_wrap(model):
         model,
         auto_wrap_policy=transformer_auto_wrapper_policy,
         mixed_precision=fp16_policy,
-        cpu_offload=CPUOffload(offload_params=False)
+        cpu_offload=CPUOffload(offload_params=True)
     )
 
     return sharded_model
