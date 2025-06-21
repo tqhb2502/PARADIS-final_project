@@ -53,7 +53,7 @@ class Config:
 
     train_size = 10000
     valid_size = 2000
-
+    min_text_length = 50
 
 def set_env_var():
     """Set value for environment variables"""
