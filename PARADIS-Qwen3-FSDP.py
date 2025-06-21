@@ -798,6 +798,7 @@ def fsdp_training(rank, world_size):
 
     # Wrap model with FSDP transformer wrapper
     model = fsdp_wrap(model)
+    if rank == 0: print(model)
 
     # Apply FSDP activation checkpointing
     model = fsdp_activation_checkpointing(model)
