@@ -127,10 +127,10 @@ def setup_hf(config, api_key):
 def ddp_setup():
     init_process_group(
         backend="nccl",
-        rank=os.environ["LOCAL_RANK"],
-        world_size=os.environ["WORLD_SIZE"]
+        rank=int(os.environ["LOCAL_RANK"]),
+        world_size=int(os.environ["WORLD_SIZE"])
     )
-    torch.cuda.set_device(os.environ["LOCAL_RANK"])
+    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
 
 #======================================================
 # Dataset
