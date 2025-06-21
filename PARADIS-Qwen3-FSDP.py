@@ -611,11 +611,11 @@ def save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, confi
     if type == 1: # best model so far
         print("\n" + "-" * 25)
         print("Best save mode")
-        print("\n" + "-" * 25)
+        print("-" * 25)
     else: # regular save every epoch
         print("\n" + "-" * 25)
         print("Regular save mode")
-        print("\n" + "-" * 25)
+        print("-" * 25)
     
     # Move model to CPU memory
     with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
