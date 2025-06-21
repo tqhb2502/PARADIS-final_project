@@ -61,13 +61,13 @@ class Config:
     """All config for this finetune"""
 
     # Model configuration
-    # model_name = "Qwen/Qwen3-0.6B"
-    model_name = "Qwen/Qwen3-1.7B"
+    model_name = "Qwen/Qwen3-0.6B"
+    # model_name = "Qwen/Qwen3-1.7B"
     dataset_name = "vietgpt/wikipedia_vi"
     
     # Training configuration
-    # output_dir = "./qwen-vietnamese-wiki-finetuned"
-    output_dir = "./qwen-vietnamese-wiki-finetuned-2"
+    output_dir = "./qwen-vietnamese-wiki-finetuned"
+    # output_dir = "./qwen-vietnamese-wiki-finetuned-2"
     num_train_epochs = 5
     per_device_train_batch_size = 2
     per_device_valid_batch_size = 2
@@ -92,14 +92,14 @@ class Config:
     
     # W&B configuration
     use_wandb = True
-    # wandb_project = "PARADIS-Qwen3_0.6B"
-    wandb_project = "PARADIS-Qwen3_1.7B"
+    wandb_project = "PARADIS-Qwen3_0.6B"
+    # wandb_project = "PARADIS-Qwen3_1.7B"
     wandb_run_name = "FSDP"
 
     # HuggingFace configuration
     use_hf = True
-    # hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP"
-    hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-FSDP"
+    hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP"
+    # hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-FSDP"
     
     # Dataset
     train_size = 10000
