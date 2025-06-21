@@ -39,7 +39,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 from datasets import load_dataset
-from transformers.models.qwen3.modeling_qwen3 import Qwen3DecoderLayer
+from transformers.models.qwen3.modeling_qwen3 import Qwen3DecoderLayer, Qwen3Attention, Qwen3MLP
 
 # General modules
 import wandb
@@ -562,13 +562,14 @@ def custom_auto_wrap_policy(
     recurse: bool,
     nonwrapped_numel: int,
     # Additional custom arguments
-    min_num_params: int = int(1e8),
+    # min_num_params: int = int(1e8),
 ) -> bool:
     """
     If the number of parameters in a module exceeds min_num_params,
     it will be wrapped.
     """
-    return nonwrapped_numel >= min_num_params
+    # return nonwrapped_numel >= min_num_params
+    return isinstance(module, (Qwen3Attention, Qwen3MLP))
 
 def fsdp_wrap(model):
     """Wrap the model with FSDP for distributed training"""
@@ -581,9 +582,8 @@ def fsdp_wrap(model):
     )
     
     # Wrap layers that have more than 1000
-    my_size_auto_wrapper_policy = functools.partial(
-        custom_auto_wrap_policy,
-        min_num_params=int(1e3)
+    my_custom_auto_wrapper_policy = functools.partial(
+        custom_auto_wrap_policy
     )
     
     # Apply mixed precision training to model
@@ -599,7 +599,7 @@ def fsdp_wrap(model):
     # Let's wrap
     sharded_model = FSDP(
         model,
-        auto_wrap_policy=my_size_auto_wrapper_policy,
+        auto_wrap_policy=my_custom_auto_wrapper_policy,
         mixed_precision=fp16_policy,
         cpu_offload=CPUOffload(offload_params=False),
         backward_prefetch=None,
