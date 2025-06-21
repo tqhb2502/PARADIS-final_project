@@ -414,6 +414,9 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                     "train_step": epoch * len(dataloader) + step + 1
                 })
 
+        if step + 1 == config.logging_steps * 2:
+            return total_loss / (config.logging_steps * 2) * config.gradient_accumulation_steps
+
     return total_loss / len(dataloader) * config.gradient_accumulation_steps
 
 # -------------------------------------------------
@@ -457,6 +460,9 @@ def validate(rank, model, dataloader, device, config):
             if total_steps % config.logging_steps == 0:
                 avg_loss = total_loss / total_steps
                 print(f"[Rank {rank}] Step {total_steps}/{len(dataloader)}, Loss: {avg_loss:.4f}")
+
+            if total_steps == config.logging_steps * 2:
+                break
                 
     avg_loss = total_loss / total_steps
     perplexity = math.exp(avg_loss)
