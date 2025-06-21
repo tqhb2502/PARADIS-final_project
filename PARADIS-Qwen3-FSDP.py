@@ -611,7 +611,7 @@ def fsdp_activation_checkpointing(model):
 # -------------------------------------------------
 # Save model checkpoint functions
 # -------------------------------------------------
-def save_model_checkpoint_old(rank, model, fullstate_saving_policy, config, hf_api):
+def save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, config, hf_api, type: int = 0):
     """Save model with FULL_STATE_DICT checkpoint type"""
     # Move model to CPU memory
     with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
@@ -621,10 +621,20 @@ def save_model_checkpoint_old(rank, model, fullstate_saving_policy, config, hf_a
     # Start saving
     if rank == 0:
         print(f"Saving model...")
+        
         # Local saving
-        save_path = os.path.join(config.output_dir, "model-checkpoint.pt")
+        if type == 1: # best model so far
+            save_path = os.path.join(config.output_dir, "best-model-ckpt.pt")
+        else: # regular save every epoch
+            save_path = os.path.join(config.output_dir, "last-model-ckpt.pt")
+        
         torch.save(cpu_state, save_path)
-        print(f"New best model saved to {save_path}")
+        
+        if type == 1: # best model so far
+            print(f"New best model saved to {save_path}")
+        else: # regular save every epoch
+            print(f"Model at epoch {epoch} saved to {save_path}")
+        
         # Push to HuggingFace hub
         if config.use_hf:
             hf_api.upload_file(
@@ -872,11 +882,13 @@ def fsdp_training(rank, world_size):
             # Check if this is the best model so far
             if valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
-                # save_model_checkpoint_old(rank, model, fullstate_saving_policy, config, hf_api)
-                save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type=1) # save best model
+                # save best model
+                save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, config, hf_api, type=1)
+                # save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type=1)
 
             # save every done epoch
-            save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type=0)
+            save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, config, hf_api, type=0)
+            # save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type=0)
 
             # Clean up GPU memory
             torch.cuda.synchronize()
