@@ -418,9 +418,6 @@ def train_epoch(rank, model, dataloader, optimizer, scheduler, scaler, device, e
                     "train_step": epoch * len(dataloader) + step + 1
                 })
 
-        if step + 1 == config.logging_steps * 2:
-            return total_loss / (config.logging_steps * 2) * config.gradient_accumulation_steps
-
     return total_loss / len(dataloader) * config.gradient_accumulation_steps
 
 # -------------------------------------------------
@@ -465,9 +462,6 @@ def validate(rank, model, dataloader, device, config):
                 avg_loss = total_loss / total_steps
                 print(f"[Rank {rank}] Step {total_steps}/{len(dataloader)}, Loss: {avg_loss:.4f}")
 
-            if total_steps == config.logging_steps * 2:
-                break
-                
     avg_loss = total_loss / total_steps
     perplexity = math.exp(avg_loss)
     
@@ -613,6 +607,16 @@ def fsdp_activation_checkpointing(model):
 # -------------------------------------------------
 def save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, config, hf_api, type: int = 0):
     """Save model with FULL_STATE_DICT checkpoint type"""
+    # Notification
+    if type == 1: # best model so far
+        print("\n" + "-" * 25)
+        print("Best save mode")
+        print("\n" + "-" * 25)
+    else: # regular save every epoch
+        print("\n" + "-" * 25)
+        print("Regular save mode")
+        print("\n" + "-" * 25)
+    
     # Move model to CPU memory
     with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
         cpu_state = model.state_dict()
