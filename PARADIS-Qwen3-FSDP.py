@@ -565,8 +565,7 @@ def custom_auto_wrap_policy(
     # min_num_params: int = int(1e8),
 ) -> bool:
     """
-    If the number of parameters in a module exceeds min_num_params,
-    it will be wrapped.
+    Specify which layer need to be wrapped
     """
     # return nonwrapped_numel >= min_num_params
     return isinstance(module, (nn.Embedding, nn.Linear))
@@ -599,7 +598,7 @@ def fsdp_wrap(model):
     # Let's wrap
     sharded_model = FSDP(
         model,
-        auto_wrap_policy=my_custom_auto_wrapper_policy,
+        auto_wrap_policy=transformer_auto_wrapper_policy,
         mixed_precision=fp16_policy,
         cpu_offload=CPUOffload(offload_params=False),
         backward_prefetch=None,
