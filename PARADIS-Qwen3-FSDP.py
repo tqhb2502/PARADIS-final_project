@@ -22,6 +22,10 @@ from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     apply_activation_checkpointing,
 )
 
+import torch.distributed.checkpoint as dcp
+from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
+from torch.distributed.checkpoint.stateful import Stateful
+
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 
 # HuggingFace
@@ -605,9 +609,9 @@ def fsdp_activation_checkpointing(model):
     return model
 
 # -------------------------------------------------
-# Save model checkpoint function
+# Save model checkpoint functions
 # -------------------------------------------------
-def save_model_checkpoint(rank, model, fullstate_saving_policy, config, hf_api):
+def save_model_checkpoint_old(rank, model, fullstate_saving_policy, config, hf_api):
     """Save model with FULL_STATE_DICT checkpoint type"""
     # Move model to CPU memory
     with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
@@ -629,7 +633,66 @@ def save_model_checkpoint(rank, model, fullstate_saving_policy, config, hf_api):
                 repo_id=config.hf_repo,
                 repo_type="model",
             )
-            print(f"Also save to Huggingface repo {config.hf_repo}")
+            print(f"Also saved to Huggingface repo {config.hf_repo}")
+
+class AppState(Stateful):
+    """This is a useful wrapper for checkpointing the Application State.
+    Since this object is compliant with the Stateful protocol,
+    DCP will automatically call state_dict/load_stat_dict as needed in
+    the dcp.save/load APIs.
+
+    Note: We take advantage of this wrapper to hande calling distributed state dict methods
+    on the model and optimizer.
+    """
+
+    def __init__(self, model, optimizer=None):
+        self.model = model
+        self.optimizer = optimizer
+
+    def state_dict(self):
+        # this line automatically manages FSDP FQN's,
+        # as well as sets the default state dict type to FSDP.SHARDED_STATE_DICT
+        model_state_dict, optimizer_state_dict = get_state_dict(self.model, self.optimizer)
+        return {
+            "model": model_state_dict,
+            "optim": optimizer_state_dict
+        }
+
+    def load_state_dict(self, state_dict):
+        # sets our state dicts on the model and optimizer, now that we've loaded
+        set_state_dict(
+            self.model,
+            self.optimizer,
+            model_state_dict=state_dict["model"],
+            optim_state_dict=state_dict["optim"]
+        )
+
+def save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type: int = 0):
+    print(f"Saving model & optimizer...")
+    
+    # Local saving
+    if type == 1: # best model so far
+        save_path = os.path.join(config.output_dir, "best-model-optim-ckpt.pt")
+    else: # regular save every epoch
+        save_path = os.path.join(config.output_dir, "last-model-optim-ckpt.pt")
+
+    state_dict = { "app": AppState(model, optimizer) }
+    dcp.save(state_dict, checkpoint_id=save_path)
+    
+    if type == 1: # best model so far
+        print(f"New best model and its optimizer saved to {save_path}")
+    else: # regular save every epoch
+        print(f"Model and its optimizer at epoch {epoch} saved to {save_path}")
+    
+    # Push to HuggingFace hub
+    if config.use_hf:
+        hf_api.upload_file(
+            path_or_fileobj=save_path,
+            path_in_repo=os.path.basename(save_path),
+            repo_id=config.hf_repo,
+            repo_type="model",
+        )
+        print(f"Also saved to Huggingface repo {config.hf_repo}")
 
 # -------------------------------------------------
 # Main training function for each GPU
@@ -809,7 +872,11 @@ def fsdp_training(rank, world_size):
             # Check if this is the best model so far
             if valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
-                save_model_checkpoint(rank, model, fullstate_saving_policy, config, hf_api)
+                # save_model_checkpoint_old(rank, model, fullstate_saving_policy, config, hf_api)
+                save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type=1) # save best model
+
+            # save every done epoch
+            save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type=0)
 
             # Clean up GPU memory
             torch.cuda.synchronize()
