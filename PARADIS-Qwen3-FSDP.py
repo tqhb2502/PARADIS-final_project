@@ -608,14 +608,15 @@ def fsdp_activation_checkpointing(model):
 def save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, config, hf_api, type: int = 0):
     """Save model with FULL_STATE_DICT checkpoint type"""
     # Notification
-    if type == 1: # best model so far
-        print("\n" + "-" * 25)
-        print("Best save mode")
-        print("-" * 25)
-    else: # regular save every epoch
-        print("\n" + "-" * 25)
-        print("Regular save mode")
-        print("-" * 25)
+    if rank == 0:
+        if type == 1: # best model so far
+            print("\n" + "-" * 25)
+            print("Best save mode")
+            print("-" * 25)
+        else: # regular save every epoch
+            print("\n" + "-" * 25)
+            print("Regular save mode")
+            print("-" * 25)
     
     # Move model to CPU memory
     with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, fullstate_saving_policy):
@@ -682,7 +683,15 @@ class AppState(Stateful):
         )
 
 def save_model_checkpoint_new(model, optimizer, epoch, config, hf_api, type: int = 0):
-    print(f"Saving model & optimizer...")
+    # Notification
+    if type == 1: # best model so far
+        print("\n" + "-" * 25)
+        print("Best save mode")
+        print("-" * 25)
+    else: # regular save every epoch
+        print("\n" + "-" * 25)
+        print("Regular save mode")
+        print("-" * 25)
     
     # Local saving
     if type == 1: # best model so far
