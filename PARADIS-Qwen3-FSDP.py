@@ -569,7 +569,7 @@ def custom_auto_wrap_policy(
     it will be wrapped.
     """
     # return nonwrapped_numel >= min_num_params
-    return isinstance(module, (Qwen3Attention, Qwen3MLP))
+    return isinstance(module, (nn.Embedding, nn.Linear))
 
 def fsdp_wrap(model):
     """Wrap the model with FSDP for distributed training"""
