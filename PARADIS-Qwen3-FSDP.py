@@ -10,9 +10,11 @@ import torch.distributed as dist
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     MixedPrecision,
+    ShardingStrategy,
+    CPUOffload,
+    BackwardPrefetch,
     FullStateDictConfig,
     StateDictType,
-    CPUOffload,
 )
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from torch.utils.data.distributed import DistributedSampler
@@ -579,7 +581,9 @@ def fsdp_wrap(model):
         model,
         auto_wrap_policy=transformer_auto_wrapper_policy,
         mixed_precision=fp16_policy,
-        cpu_offload=CPUOffload(offload_params=True)
+        cpu_offload=CPUOffload(offload_params=False),
+        backward_prefetch=BackwardPrefetch.BACKWARD_POST,
+        sharding_strategy=ShardingStrategy.FULL_SHARD
     )
 
     return sharded_model
