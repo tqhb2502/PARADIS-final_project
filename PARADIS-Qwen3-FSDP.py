@@ -70,7 +70,8 @@ class Config:
 
     # Model configuration
     # model_name = "Qwen/Qwen3-0.6B"
-    model_name = "Qwen/Qwen3-1.7B"
+    # model_name = "Qwen/Qwen3-1.7B"
+    model_name = "Qwen/Qwen3-1.7B-MLX-4bit"
     dataset_name = "vietgpt/wikipedia_vi"
     
     # Training configuration
@@ -614,7 +615,7 @@ def fsdp_wrap(model):
         model,
         auto_wrap_policy=transformer_auto_wrapper_policy,
         mixed_precision=fp16_policy,
-        cpu_offload=CPUOffload(offload_params=True),
+        # cpu_offload=CPUOffload(offload_params=True),
         backward_prefetch=None,
         sharding_strategy=ShardingStrategy.FULL_SHARD,
     )
