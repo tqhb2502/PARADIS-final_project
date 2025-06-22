@@ -103,7 +103,7 @@ class Config:
     use_wandb = True
     # wandb_project = "PARADIS-Qwen3_0.6B"
     wandb_project = "PARADIS-Qwen3_1.7B"
-    wandb_run_name = "FSDP-No_Distributed_Sampler"
+    wandb_run_name = "FSDP-4bit-No_Distributed_Sampler"
 
     # HuggingFace configuration
     use_hf = True
