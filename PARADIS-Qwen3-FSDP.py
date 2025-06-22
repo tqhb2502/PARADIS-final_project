@@ -663,7 +663,7 @@ def save_model_checkpoint_old(rank, model, epoch, fullstate_saving_policy, confi
         if type == 1: # best model so far
             print(f"New best model saved to {save_path}")
         else: # regular save every epoch
-            print(f"Model at epoch {epoch} saved to {save_path}")
+            print(f"Model at epoch {epoch + 1} saved to {save_path}")
         
         # Push to HuggingFace hub
         if config.use_hf:
