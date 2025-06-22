@@ -53,7 +53,7 @@ class Config:
     num_train_epochs = 5
     per_device_train_batch_size = 2
     per_device_valid_batch_size = 2
-    gradient_accumulation_steps = 8
+    gradient_accumulation_steps = 1
     learning_rate = 5e-5
     weight_decay = 0.01
     warmup_ratio = 0.1
@@ -324,11 +324,11 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, epoch, config):
         if (step + 1) % config.gradient_accumulation_steps == 0:
             if config.fp16:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
                 scaler.step(optimizer)
                 scaler.update()
             else:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
                 optimizer.step()
             
             scheduler.step()
