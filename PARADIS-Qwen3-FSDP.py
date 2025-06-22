@@ -69,13 +69,12 @@ class Config:
     """All config for this finetune"""
 
     # Model configuration
-    model_name = "Qwen/Qwen3-0.6B"
-    # model_name = "Qwen/Qwen3-1.7B"
+    # model_name = "Qwen/Qwen3-0.6B"
+    model_name = "Qwen/Qwen3-1.7B"
     dataset_name = "vietgpt/wikipedia_vi"
     
     # Training configuration
     output_dir = "./qwen-vietnamese-wiki-finetuned"
-    # output_dir = "./qwen-vietnamese-wiki-finetuned-2"
     num_train_epochs = 5
     per_device_train_batch_size = 2
     per_device_valid_batch_size = 2
@@ -96,18 +95,18 @@ class Config:
     
     # Other settings
     fp16 = True
-    num_workers = os.cpu_count()
+    num_workers = os.cpu_count() // 2
     
     # W&B configuration
     use_wandb = True
-    wandb_project = "PARADIS-Qwen3_0.6B"
-    # wandb_project = "PARADIS-Qwen3_1.7B"
+    # wandb_project = "PARADIS-Qwen3_0.6B"
+    wandb_project = "PARADIS-Qwen3_1.7B"
     wandb_run_name = "FSDP"
 
     # HuggingFace configuration
     use_hf = True
-    hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP"
-    # hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-FSDP"
+    # hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP"
+    hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-FSDP"
     
     # Dataset
     train_size = 10000
@@ -316,47 +315,34 @@ def create_train_valid_set(dataset, tokenizer, config):
 # -------------------------------------------------
 def create_train_valid_loader(train_ds, valid_ds, rank, world_size, config):
     """Create distributed samplers and data loader for train and valid set"""
-    # # Train data loader
-    # train_sampler = DistributedSampler(
-    #     train_ds,
-    #     num_replicas=world_size,
-    #     rank=rank,
-    #     shuffle=True,
-    #     drop_last=True
-    # )
-    # train_loader = DataLoader(
-    #     train_ds,
-    #     batch_size=config.per_device_train_batch_size,
-    #     sampler=train_sampler,
-    #     num_workers=config.num_workers,
-    #     pin_memory=True,
-    #     drop_last=True,
-    # )
+    # Train data loader
+    train_sampler = DistributedSampler(
+        train_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        seed=RANDOM_SEED,
+    )
     train_loader = DataLoader(
         train_ds,
         batch_size=config.per_device_train_batch_size,
+        sampler=train_sampler,
         num_workers=config.num_workers,
-        shuffle=True,
+        shuffle=False,
         pin_memory=True,
     )
 
-    # # Validation data loader
-    # valid_sampler = DistributedSampler(
-    #     valid_ds,
-    #     num_replicas=world_size,
-    #     rank=rank,
-    #     shuffle=False
-    # )
-    # valid_loader = DataLoader(
-    #     valid_ds,
-    #     batch_size=config.per_device_valid_batch_size,
-    #     sampler=valid_sampler,
-    #     num_workers=config.num_workers,
-    #     pin_memory=True,
-    # )
+    # Validation data loader
+    valid_sampler = DistributedSampler(
+        valid_ds,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=False,
+    )
     valid_loader = DataLoader(
         valid_ds,
         batch_size=config.per_device_valid_batch_size,
+        sampler=valid_sampler,
         num_workers=config.num_workers,
         shuffle=False,
         pin_memory=True,
@@ -614,7 +600,7 @@ def fsdp_wrap(model):
         model,
         auto_wrap_policy=transformer_auto_wrapper_policy,
         mixed_precision=fp16_policy,
-        # cpu_offload=CPUOffload(offload_params=True),
+        cpu_offload=CPUOffload(offload_params=True),
         backward_prefetch=None,
         sharding_strategy=ShardingStrategy.FULL_SHARD,
     )
