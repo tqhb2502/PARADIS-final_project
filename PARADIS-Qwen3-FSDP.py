@@ -102,11 +102,11 @@ class Config:
     use_wandb = True
     wandb_project = "PARADIS-Qwen3_0.6B"
     # wandb_project = "PARADIS-Qwen3_1.7B"
-    wandb_run_name = "FSDP"
+    wandb_run_name = "FSDP-No_Distributed_Sampler"
 
     # HuggingFace configuration
     use_hf = True
-    hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP"
+    hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-FSDP-No_Distributed_Sampler"
     # hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-FSDP"
     
     # Dataset
@@ -316,35 +316,49 @@ def create_train_valid_set(dataset, tokenizer, config):
 # -------------------------------------------------
 def create_train_valid_loader(train_ds, valid_ds, rank, world_size, config):
     """Create distributed samplers and data loader for train and valid set"""
-    # Train data loader
-    train_sampler = DistributedSampler(
-        train_ds,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=True,
-        drop_last=True
-    )
+    # # Train data loader
+    # train_sampler = DistributedSampler(
+    #     train_ds,
+    #     num_replicas=world_size,
+    #     rank=rank,
+    #     shuffle=True,
+    #     drop_last=True
+    # )
+    # train_loader = DataLoader(
+    #     train_ds,
+    #     batch_size=config.per_device_train_batch_size,
+    #     sampler=train_sampler,
+    #     num_workers=config.num_workers,
+    #     pin_memory=True,
+    #     drop_last=True,
+    # )
     train_loader = DataLoader(
         train_ds,
         batch_size=config.per_device_train_batch_size,
-        sampler=train_sampler,
         num_workers=config.num_workers,
+        shuffle=True,
         pin_memory=True,
-        drop_last=True,
     )
 
-    # Validation data loader
-    valid_sampler = DistributedSampler(
-        valid_ds,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=False
-    )
+    # # Validation data loader
+    # valid_sampler = DistributedSampler(
+    #     valid_ds,
+    #     num_replicas=world_size,
+    #     rank=rank,
+    #     shuffle=False
+    # )
+    # valid_loader = DataLoader(
+    #     valid_ds,
+    #     batch_size=config.per_device_valid_batch_size,
+    #     sampler=valid_sampler,
+    #     num_workers=config.num_workers,
+    #     pin_memory=True,
+    # )
     valid_loader = DataLoader(
         valid_ds,
         batch_size=config.per_device_valid_batch_size,
-        sampler=valid_sampler,
         num_workers=config.num_workers,
+        shuffle=False,
         pin_memory=True,
     )
 
