@@ -199,9 +199,9 @@ def load_model_n_tokenizer(config):
         trust_remote_code=True,
     )
 
-    # # Do not use past_key_values
-    # model.config.use_cache = False
-    # model.gradient_checkpointing_enable()
+    # Do not use past_key_values
+    model.config.use_cache = False
+    model.gradient_checkpointing_enable()
 
     return model, tokenizer
 
@@ -584,7 +584,7 @@ def distributed_training():
             # Training
             print("Training...")
             start_time = time.time()
-            train_loss = train_epoch(model, train_dataloader, optimizer, scheduler, model_engine.device, epoch, config)
+            train_loss = train_epoch(model_engine, train_dataloader, optimizer, scheduler, model_engine.device, epoch, config)
             end_time = time.time()
             
             elapsed_time = end_time - start_time
@@ -595,7 +595,7 @@ def distributed_training():
             # Validation
             print("Validating...")
             start_time = time.time()
-            valid_loss, perplexity = validate(model, valid_dataloader, model_engine.device, config)
+            valid_loss, perplexity = validate(model_engine, valid_dataloader, model_engine.device, config)
             end_time = time.time()
             
             elapsed_time = end_time - start_time
