@@ -199,9 +199,9 @@ def load_model_n_tokenizer(config):
         trust_remote_code=True,
     )
 
-    # Do not use past_key_values
-    model.config.use_cache = False
-    model.gradient_checkpointing_enable()
+    # # Do not use past_key_values
+    # model.config.use_cache = False
+    # model.gradient_checkpointing_enable()
 
     return model, tokenizer
 
