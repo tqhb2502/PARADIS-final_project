@@ -555,7 +555,7 @@ def distributed_training():
     # Setup DeepSpeed ZeRO 3
     # -------------------------------------------------
     ds_config = "zero_stage3_offload_config.json"
-    model_engine, _, _, _ = deepspeed.initialize(
+    model, _, _, _ = deepspeed.initialize(
         model=model,
         model_parameters=model.parameters(),
         config=ds_config
@@ -584,7 +584,7 @@ def distributed_training():
             # Training
             print("Training...")
             start_time = time.time()
-            train_loss = train_epoch(model_engine, train_dataloader, optimizer, scheduler, model_engine.device, epoch, config)
+            train_loss = train_epoch(model, train_dataloader, optimizer, scheduler, model.device, epoch, config)
             end_time = time.time()
             
             elapsed_time = end_time - start_time
@@ -595,7 +595,7 @@ def distributed_training():
             # Validation
             print("Validating...")
             start_time = time.time()
-            valid_loss, perplexity = validate(model_engine, valid_dataloader, model_engine.device, config)
+            valid_loss, perplexity = validate(model, valid_dataloader, model.device, config)
             end_time = time.time()
             
             elapsed_time = end_time - start_time
