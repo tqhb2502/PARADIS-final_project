@@ -14,7 +14,6 @@ import wandb
 import math
 import time
 import os
-import gc
 import json
 
 # DeepSpeed
@@ -60,13 +59,13 @@ class Config:
     num_workers = os.cpu_count()
     
     # W&B configuration
-    use_wandb = True
+    use_wandb = False
     wandb_project = "PARADIS-Qwen3_0.6B"
     # wandb_project = "PARADIS-Qwen3_1.7B"
     wandb_run_name = "ZeRO3"
 
     # HuggingFace configuration
-    use_hf = True
+    use_hf = False
     hf_repo = "h9art/PARADIS-Qwen3_0.6B-10kWikiVi-ZeRO3"
     # hf_repo = "h9art/PARADIS-Qwen3_1.7B-10kWikiVi-ZeRO3"
     
