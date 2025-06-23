@@ -49,7 +49,6 @@ class Config:
     num_train_epochs = 5
     per_device_train_batch_size = 2
     per_device_valid_batch_size = 2
-    gradient_accumulation_steps = 8
     learning_rate = 5e-5
     weight_decay = 0.01
     warmup_ratio = 0.1
@@ -293,7 +292,7 @@ def train_epoch(engine, dataloader, epoch, config):
             attention_mask=attention_mask,
             labels=labels
         )
-        loss = outputs.loss / config.gradient_accumulation_steps
+        loss = outputs.loss
 
         # Backward pass
         engine.backward(loss)
@@ -301,14 +300,13 @@ def train_epoch(engine, dataloader, epoch, config):
         # Calculate total loss
         total_loss += loss.item()
 
-        # Update weights every gradient_accumulation_steps
-        if (step + 1) % config.gradient_accumulation_steps == 0:
-            engine.step()
+        # Update weights
+        engine.step()
         
         # Logging
         if (step + 1) % config.logging_steps == 0:
             
-            avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
+            avg_loss = total_loss / (step + 1)
             print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}")
 
             if config.use_wandb:
@@ -317,7 +315,7 @@ def train_epoch(engine, dataloader, epoch, config):
                     "train_step": epoch * len(dataloader) + step + 1
                 })
 
-    return total_loss / len(dataloader) * config.gradient_accumulation_steps
+    return total_loss / len(dataloader)
 
 # -------------------------------------------------
 # Validation function
