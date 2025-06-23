@@ -3,15 +3,10 @@
 # -------------------------------------------------
 # Pytorch
 import torch
-import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 
 # HuggingFace
-from transformers import (
-    AutoTokenizer, 
-    AutoModelForCausalLM,
-    get_linear_schedule_with_warmup,
-)
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 
 # General modules
@@ -20,6 +15,7 @@ import math
 import time
 import os
 import gc
+import json
 
 # DeepSpeed
 import deepspeed
@@ -53,7 +49,7 @@ class Config:
     num_train_epochs = 5
     per_device_train_batch_size = 2
     per_device_valid_batch_size = 2
-    gradient_accumulation_steps = 1
+    gradient_accumulation_steps = 8
     learning_rate = 5e-5
     weight_decay = 0.01
     warmup_ratio = 0.1
@@ -134,7 +130,10 @@ class WikiViDataset(Dataset):
 # -------------------------------------------------
 def set_env_var():
     """Set value for environment variables"""
-    pass
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    os.environ.setdefault("WORLD_SIZE", os.getenv("WORLD_SIZE", "1"))
+    os.environ.setdefault("RANK", os.getenv("RANK", "0"))
 
 # -------------------------------------------------
 # Get Kaggle secrets
@@ -260,7 +259,6 @@ def create_train_valid_loader(train_ds, valid_ds, config):
         train_ds,
         batch_size=config.per_device_train_batch_size,
         num_workers=config.num_workers,
-        shuffle=True,
         pin_memory=True,
     )
 
@@ -269,7 +267,6 @@ def create_train_valid_loader(train_ds, valid_ds, config):
         valid_ds,
         batch_size=config.per_device_valid_batch_size,
         num_workers=config.num_workers,
-        shuffle=False,
         pin_memory=True,
     )
 
@@ -278,72 +275,45 @@ def create_train_valid_loader(train_ds, valid_ds, config):
 # -------------------------------------------------
 # Training function
 # -------------------------------------------------
-def train_epoch(model, dataloader, optimizer, scheduler, device, epoch, config):
+def train_epoch(engine, dataloader, epoch, config):
     """Train model for one epoch."""
     
-    model.train()
+    engine.train()
     total_loss = 0
-    optimizer.zero_grad()
-        
+    
     for step, batch in enumerate(dataloader):
         # Move batch to device
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['labels'].to(device)
+        input_ids = batch['input_ids'].to(engine.local_rank)
+        attention_mask = batch['attention_mask'].to(engine.local_rank)
+        labels = batch['labels'].to(engine.local_rank)
         
-        # Forward pass with mixed precision
-        if config.fp16:
-            # For mixed precision
-            with torch.autocast(device_type=device.type):
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels
-                )
-                # Chia loss cho gradient_accumulation_steps
-                # Nếu không nhận được loss sẽ gấp <gradient_accumulation_steps> lần loss thực sự
-                loss = outputs.loss / config.gradient_accumulation_steps
-        else:
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels
-            )
-            loss = outputs.loss / config.gradient_accumulation_steps
+        # Forward pass
+        outputs = engine(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            labels=labels
+        )
+        loss = outputs.loss / config.gradient_accumulation_steps
 
         # Backward pass
-        if config.fp16:
-            scaler.scale(loss).backward()
-        else:
-            loss.backward()
+        engine.backward(loss)
         
         # Calculate total loss
         total_loss += loss.item()
 
         # Update weights every gradient_accumulation_steps
         if (step + 1) % config.gradient_accumulation_steps == 0:
-            if config.fp16:
-                scaler.unscale_(optimizer)
-                # torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                # torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
-                optimizer.step()
-            
-            scheduler.step()
-            optimizer.zero_grad()
+            engine.step()
         
         # Logging
         if (step + 1) % config.logging_steps == 0:
             
             avg_loss = total_loss / (step + 1) * config.gradient_accumulation_steps
-            print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}, LR: {scheduler.get_last_lr()[0]:.2e}")
+            print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}")
 
             if config.use_wandb:
                 wandb.log({
                     "train_loss": avg_loss,
-                    "learning_rate": scheduler.get_last_lr()[0],
                     "train_step": epoch * len(dataloader) + step + 1
                 })
 
@@ -352,104 +322,39 @@ def train_epoch(model, dataloader, optimizer, scheduler, device, epoch, config):
 # -------------------------------------------------
 # Validation function
 # -------------------------------------------------
-def validate(model, dataloader, device, config):
+def validate(engine, dataloader, config):
     """Validate the model."""
     
-    model.eval()
+    engine.eval()
     total_loss = 0
-    total_steps = 0
     
     with torch.no_grad():        
-        for batch in dataloader:
+        for step, batch in enumerate(dataloader):
             # Move batch to device
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels = batch['labels'].to(device)
+            input_ids = batch['input_ids'].to(engine.local_rank)
+            attention_mask = batch['attention_mask'].to(engine.local_rank)
+            labels = batch['labels'].to(engine.local_rank)
             
             # Forward pass
-            if config.fp16:
-                with torch.autocast(device_type=device.type):
-                    outputs = model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        labels=labels
-                    )
-            else:
-                outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    labels=labels
-                )
+            outputs = engine(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels
+            )
             
             # Calculate loss
             loss = outputs.loss
             total_loss += loss.item()
-            total_steps += 1
 
             # Logging
-            if total_steps % config.logging_steps == 0:
-                avg_loss = total_loss / total_steps
-                print(f"Step {total_steps}/{len(dataloader)}, Loss: {avg_loss:.4f}")
+            if (step + 1) % config.logging_steps == 0:
+                avg_loss = total_loss / (step + 1)
+                print(f"Step {step + 1}/{len(dataloader)}, Loss: {avg_loss:.4f}")
 
-    avg_loss = total_loss / total_steps
+    avg_loss = total_loss / len(dataloader)
     perplexity = math.exp(avg_loss)
     
     return avg_loss, perplexity
-
-# -------------------------------------------------
-# Generation function
-# -------------------------------------------------
-def generate_text(
-    model,
-    tokenizer,
-    device,
-    prompt,
-    max_length=MAX_LENGTH,
-    temperature=0.7,
-    top_p=0.9,
-    top_k=50
-):
-    """Generate text using the model."""
-    
-    model.eval()
-    
-    # Tokenize input
-    inputs = tokenizer.encode(prompt, return_tensors='pt').to(device)
-    
-    with torch.no_grad():
-        # Generate
-        outputs = model.generate(
-            inputs,
-            max_length=max_length,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.1
-        )
-    
-    # Decode generated text
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return generated_text
-
-# -------------------------------------------------
-# Test model generation
-# -------------------------------------------------
-def test_model_generation(model, tokenizer, device, test_prompts):
-    """Run model generation with some test prompts"""
-    print("\n" + "=" * 50)
-    print("TESTING THE MODEL")
-    print("=" * 50)
-
-    for i, prompt in enumerate(test_prompts, 1):
-        print(f"\n--- Test {i} ---")
-        print(f"Prompt: {prompt}")
-        print("-" * 40)
-        
-        generated = generate_text(model, tokenizer, device, prompt)
-        print(f"Generated: {generated}")
 
 # -------------------------------------------------
 # Main training function for each GPU
@@ -462,6 +367,9 @@ def distributed_training():
     # -------------------------------------------------
     # Set up env vars
     set_env_var()
+
+    # Set up distributed environment for current rank
+    deepspeed.init_distributed()
     
     # Set random seed
     torch.manual_seed(RANDOM_SEED)
@@ -521,44 +429,13 @@ def distributed_training():
     print(f"Valid batches: {len(valid_dataloader)}")
 
     # -------------------------------------------------
-    # Optimizer & scheduler
-    # -------------------------------------------------
-    print(f"\n{'=' * 50}")
-    print("Optimizer & scheduler")
-    print(f"{'=' * 50}")
-    # Calculate training step
-    total_steps = len(train_dataloader) * config.num_train_epochs // config.gradient_accumulation_steps
-    warmup_steps = int(total_steps * config.warmup_ratio)
-    
-    print(f"Total training steps: {total_steps}")
-    print(f"Warmup steps: {warmup_steps}")
-
-    # Setup optimizer
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay,
-        eps=config.adam_epsilon
-    )
-
-    # Setup learning rate scheduler
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=warmup_steps,
-        num_training_steps=total_steps
-    )
-
-    # Setup gradient scaler for mixed precision training
-    scaler = torch.amp.GradScaler(device) if config.fp16 else None
-
-    # -------------------------------------------------
     # Setup DeepSpeed ZeRO 3
     # -------------------------------------------------
-    ds_config = "zero_stage3_offload_config.json"
-    model, _, _, _ = deepspeed.initialize(
+    ds_cfg = json.load(open("zero_stage3_offload_config.json"))
+    engine, _, _, _ = deepspeed.initialize(
         model=model,
-        model_parameters=model.parameters(),
-        config=ds_config
+        config_params=ds_cfg,
+        model_parameters=model.parameters()
     )
 
     # -------------------------------------------------
@@ -584,7 +461,7 @@ def distributed_training():
             # Training
             print("Training...")
             start_time = time.time()
-            train_loss = train_epoch(model, train_dataloader, optimizer, scheduler, model.device, epoch, config)
+            train_loss = train_epoch(engine, train_dataloader, epoch, config)
             end_time = time.time()
             
             elapsed_time = end_time - start_time
@@ -595,7 +472,7 @@ def distributed_training():
             # Validation
             print("Validating...")
             start_time = time.time()
-            valid_loss, perplexity = validate(model, valid_dataloader, model.device, config)
+            valid_loss, perplexity = validate(engine, valid_dataloader, config)
             end_time = time.time()
             
             elapsed_time = end_time - start_time
@@ -618,13 +495,10 @@ def distributed_training():
             if valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
                 # save best model
+                engine.save_checkpoint(config.output_dir, tag=f"best_epoch{epoch+1}")
 
             # save every done epoch
-
-            # Clean up GPU memory
-            torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            gc.collect()
+            engine.save_checkpoint(config.output_dir, tag=f"regular_epoch{epoch+1}")
     except Exception as e:
         print(f"Error: {str(e)}")
     finally:
