@@ -49,14 +49,7 @@ class Config:
     num_train_epochs = 5
     per_device_train_batch_size = 2
     per_device_valid_batch_size = 2
-    learning_rate = 5e-5
-    weight_decay = 0.01
-    warmup_ratio = 0.1
     max_length = MAX_LENGTH
-
-    # Optimization settings
-    adam_epsilon = 1e-8
-    max_grad_norm = 1.0
     
     # Logging and saving
     logging_steps = 40
@@ -64,7 +57,6 @@ class Config:
     valid_strategy = "epoch"
     
     # Other settings
-    fp16 = False
     num_workers = os.cpu_count()
     
     # W&B configuration
@@ -81,7 +73,6 @@ class Config:
     # Dataset
     train_size = 10000
     valid_size = 10000
-    test_size = 5000
     min_text_length = 50
 
 # -------------------------------------------------
